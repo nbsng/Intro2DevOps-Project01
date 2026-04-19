@@ -663,6 +663,76 @@ pipeline {
                 }
             }
         }
+
+        // ==========================================
+        // 20. COMMON-LIBRARY
+        // ==========================================
+        stage('CI: Common-library') {
+            when { changeset "common-library/**" }
+            stages {
+                stage('Build') {
+                    steps {
+                        dir('common-library') {
+                            sh 'mvn clean install -DskipTests -pl . -am'
+                        }
+                    }
+                }
+                stage('Test & Coverage') {
+                    steps {
+                        dir('common-library') {
+                            sh 'mvn test jacoco:report -pl . -am'
+                        }
+                    }
+                    post {
+                        always {
+                            junit testResults: 'common-library/target/surefire-reports/*.xml', allowEmptyResults: true
+                            recordCoverage(
+                                tools: [[parser: 'JACOCO', pattern: 'common-library/target/site/jacoco/jacoco.xml']],
+                                qualityGates: [
+                                    [threshold: 70.0, metric: 'LINE', unstable: false],
+                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
+                                ]
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 21. DELIVERY
+        // ==========================================
+        stage('CI: Delivery') {
+            when { changeset "delivery/**" }
+            stages {
+                stage('Build') {
+                    steps {
+                        dir('delivery') {
+                            sh 'mvn clean install -DskipTests -pl . -am'
+                        }
+                    }
+                }
+                stage('Test & Coverage') {
+                    steps {
+                        dir('delivery') {
+                            sh 'mvn test jacoco:report -pl . -am'
+                        }
+                    }
+                    post {
+                        always {
+                            junit testResults: 'delivery/target/surefire-reports/*.xml', allowEmptyResults: true
+                            recordCoverage(
+                                tools: [[parser: 'JACOCO', pattern: 'delivery/target/site/jacoco/jacoco.xml']],
+                                qualityGates: [
+                                    [threshold: 70.0, metric: 'LINE', unstable: false],
+                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
+                                ]
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ==========================================
