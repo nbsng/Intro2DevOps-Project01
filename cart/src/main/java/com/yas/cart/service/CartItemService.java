@@ -55,6 +55,8 @@ public class CartItemService {
         return cartItemMapper.toGetVm(savedCartItem);
     }
 
+    // making changes for new commit test
+
     public List<CartItemGetVm> getCartItems() {
         String currentUserId = AuthenticationUtils.extractUserId();
         List<CartItem> cartItems = cartItemRepository.findByCustomerIdOrderByCreatedOnDesc(currentUserId);
