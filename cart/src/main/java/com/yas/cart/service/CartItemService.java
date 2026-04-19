@@ -151,3 +151,5 @@ public class CartItemService {
             .collect(Collectors.toMap(CartItem::getProductId, Function.identity()));
     }
 }
+
+// pt.6
