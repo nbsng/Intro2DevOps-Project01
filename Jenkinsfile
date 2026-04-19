@@ -15,7 +15,7 @@ pipeline {
     stages {
 
         // ==========================================
-        // 1. BACKOFFICE
+        // 1. BACKOFFICE (Node.js)
         // ==========================================
         stage('CI: Backoffice') {
             when { changeset "backoffice/**" }
@@ -42,46 +42,39 @@ pipeline {
         }
 
         // ==========================================
-        // 2. BACKOFFICE-BFF
+        // 2. BACKOFFICE-BFF (Maven)
         // ==========================================
         stage('CI: Backoffice-bff') {
             when { changeset "backoffice-bff/**" }
             stages {
                 stage('Verify & Checkstyle') {
                     steps {
-                        dir('backoffice-bff') {
-                            echo "[INFO] Đang chạy Verify và Checkstyle cho Backoffice-bff..."
-                            sh 'mvn clean verify checkstyle:checkstyle -DskipTests -pl . -am'
-                        }
+                        // Bỏ dir(), chạy từ root với -pl backoffice-bff
+                        echo "[INFO] Đang chạy Verify và Checkstyle cho Backoffice-bff..."
+                        sh 'mvn clean verify checkstyle:checkstyle -DskipTests -pl backoffice-bff -am'
                     }
                 }
             }
         }
 
         // ==========================================
-        // 3. CART
+        // 3. CART (Maven Core)
         // ==========================================
         stage('CI: Cart') {
             when { changeset "cart/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('cart') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl cart -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('cart') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl cart -am'
                     }
                     post {
                         always {
-                            // Đọc kết quả JUnit Test để vẽ biểu đồ Pass/Fail
                             junit testResults: 'cart/target/surefire-reports/*.xml', allowEmptyResults: true
-                            // Kiểm tra Quality Gate: 70% Line và 70% Branch
                             recordCoverage(
                                 tools: [[parser: 'JACOCO', pattern: 'cart/target/site/jacoco/jacoco.xml']],
                                 qualityGates: [
@@ -96,23 +89,19 @@ pipeline {
         }
 
         // ==========================================
-        // 4. CUSTOMER
+        // 4. CUSTOMER (Maven Core)
         // ==========================================
         stage('CI: Customer') {
             when { changeset "customer/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('customer') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl customer -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('customer') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl customer -am'
                     }
                     post {
                         always {
@@ -131,23 +120,19 @@ pipeline {
         }
 
         // ==========================================
-        // 5. INVENTORY
+        // 5. INVENTORY (Maven Core)
         // ==========================================
         stage('CI: Inventory') {
             when { changeset "inventory/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('inventory') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl inventory -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('inventory') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl inventory -am'
                     }
                     post {
                         always {
@@ -166,23 +151,19 @@ pipeline {
         }
 
         // ==========================================
-        // 6. LOCATION
+        // 6. LOCATION (Maven Core)
         // ==========================================
         stage('CI: Location') {
             when { changeset "location/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('location') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl location -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('location') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl location -am'
                     }
                     post {
                         always {
@@ -201,23 +182,19 @@ pipeline {
         }
 
         // ==========================================
-        // 7. MEDIA
+        // 7. MEDIA (Maven Core)
         // ==========================================
         stage('CI: Media') {
             when { changeset "media/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('media') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl media -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('media') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl media -am'
                     }
                     post {
                         always {
@@ -236,23 +213,19 @@ pipeline {
         }
 
         // ==========================================
-        // 8. ORDER
+        // 8. ORDER (Maven Core)
         // ==========================================
         stage('CI: Order') {
             when { changeset "order/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('order') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl order -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('order') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl order -am'
                     }
                     post {
                         always {
@@ -271,23 +244,19 @@ pipeline {
         }
 
         // ==========================================
-        // 9. PAYMENT
+        // 9. PAYMENT (Maven Core)
         // ==========================================
         stage('CI: Payment') {
             when { changeset "payment/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('payment') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl payment -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('payment') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl payment -am'
                     }
                     post {
                         always {
@@ -306,23 +275,19 @@ pipeline {
         }
 
         // ==========================================
-        // 10. PAYMENT-PAYPAL
+        // 10. PAYMENT-PAYPAL (Maven Core)
         // ==========================================
         stage('CI: Payment Paypal') {
             when { changeset "payment-paypal/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('payment-paypal') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl payment-paypal -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('payment-paypal') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl payment-paypal -am'
                     }
                     post {
                         always {
@@ -341,23 +306,19 @@ pipeline {
         }
         
         // ==========================================
-        // 11. PRODUCT
+        // 11. PRODUCT (Maven Core)
         // ==========================================
         stage('CI: Product') {
             when { changeset "product/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('product') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl product -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('product') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl product -am'
                     }
                     post {
                         always {
@@ -376,23 +337,19 @@ pipeline {
         }
 
         // ==========================================
-        // 12. PROMOTION
+        // 12. PROMOTION (Maven Core)
         // ==========================================
         stage('CI: Promotion') {
             when { changeset "promotion/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('promotion') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl promotion -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('promotion') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl promotion -am'
                     }
                     post {
                         always {
@@ -411,23 +368,19 @@ pipeline {
         }
 
         // ==========================================
-        // 13. RATING
+        // 13. RATING (Maven Core)
         // ==========================================
         stage('CI: Rating') {
             when { changeset "rating/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('rating') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl rating -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('rating') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl rating -am'
                     }
                     post {
                         always {
@@ -446,23 +399,19 @@ pipeline {
         }
 
         // ==========================================
-        // 14. RECOMMENDATION
+        // 14. RECOMMENDATION (Maven Core)
         // ==========================================
         stage('CI: Recommendation') {
             when { changeset "recommendation/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('recommendation') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl recommendation -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('recommendation') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl recommendation -am'
                     }
                     post {
                         always {
@@ -481,23 +430,19 @@ pipeline {
         }
 
         // ==========================================
-        // 15. SAMPLE DATA
+        // 15. SAMPLE DATA (Maven Core)
         // ==========================================
         stage('CI: Sample data') {
             when { changeset "sampledata/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('sampledata') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl sampledata -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('sampledata') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl sampledata -am'
                     }
                     post {
                         always {
@@ -516,23 +461,19 @@ pipeline {
         }
 
         // ==========================================
-        // 16. SEARCH
+        // 16. SEARCH (Maven Core)
         // ==========================================
         stage('CI: Search') {
             when { changeset "search/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('search') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl search -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('search') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl search -am'
                     }
                     post {
                         always {
@@ -551,24 +492,22 @@ pipeline {
         }
 
         // ==========================================
-        // 17. STOREFRONT-BFF
+        // 17. STOREFRONT-BFF (Maven)
         // ==========================================
         stage('CI: Storefront-bff') {
             when { changeset "storefront-bff/**" }
             stages {
                 stage('Verify & Checkstyle') {
                     steps {
-                        dir('storefront-bff') {
-                            echo "[INFO] Đang chạy Verify và Checkstyle cho Storefront-bff..."
-                            sh 'mvn clean verify checkstyle:checkstyle -DskipTests -pl . -am'
-                        }
+                        echo "[INFO] Đang chạy Verify và Checkstyle cho Storefront-bff..."
+                        sh 'mvn clean verify checkstyle:checkstyle -DskipTests -pl storefront-bff -am'
                     }
                 }
             }
         }
 
         // ==========================================
-        // 18. STOREFRONT
+        // 18. STOREFRONT (Node.js)
         // ==========================================
         stage('CI: Storefront') {
             when { changeset "storefront/**" }
@@ -595,23 +534,19 @@ pipeline {
         }
 
         // ==========================================
-        // 19. TAX
+        // 19. TAX (Maven Core)
         // ==========================================
         stage('CI: Tax') {
             when { changeset "tax/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('tax') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl tax -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('tax') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl tax -am'
                     }
                     post {
                         always {
@@ -630,23 +565,19 @@ pipeline {
         }
 
         // ==========================================
-        // 20. WEBHOOK
+        // 20. WEBHOOK (Maven Core)
         // ==========================================
         stage('CI: Webhook') {
             when { changeset "webhook/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('webhook') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl webhook -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('webhook') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl webhook -am'
                     }
                     post {
                         always {
@@ -665,23 +596,19 @@ pipeline {
         }
 
         // ==========================================
-        // 20. COMMON-LIBRARY
+        // 21. COMMON-LIBRARY (Maven Core)
         // ==========================================
         stage('CI: Common-library') {
             when { changeset "common-library/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('common-library') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl common-library -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('common-library') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl common-library -am'
                     }
                     post {
                         always {
@@ -700,23 +627,19 @@ pipeline {
         }
 
         // ==========================================
-        // 21. DELIVERY
+        // 22. DELIVERY (Maven Core)
         // ==========================================
         stage('CI: Delivery') {
             when { changeset "delivery/**" }
             stages {
                 stage('Build') {
                     steps {
-                        dir('delivery') {
-                            sh 'mvn clean install -DskipTests -pl . -am'
-                        }
+                        sh 'mvn clean install -DskipTests -pl delivery -am'
                     }
                 }
                 stage('Test & Coverage') {
                     steps {
-                        dir('delivery') {
-                            sh 'mvn test jacoco:report -pl . -am'
-                        }
+                        sh 'mvn test jacoco:report -pl delivery -am'
                     }
                     post {
                         always {
@@ -743,7 +666,7 @@ pipeline {
             cleanWs()
         }
         success {
-            echo "✅ Pipeline hoàn thành thành công!."
+            echo "✅ Pipeline hoàn thành thành công!"
         }
         failure {
             echo "❌ Pipeline thất bại!"
