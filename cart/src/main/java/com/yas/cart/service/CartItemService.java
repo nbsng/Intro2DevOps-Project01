@@ -57,6 +57,7 @@ public class CartItemService {
 
     // making changes for new commit test
     // making the second change
+    // making the third changes
 
     public List<CartItemGetVm> getCartItems() {
         String currentUserId = AuthenticationUtils.extractUserId();
