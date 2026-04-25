@@ -656,6 +656,63 @@ pipeline {
                 }
             }
         }
+
+        // ==========================================
+        // 23. QUALITY & SECURITY (SONARQUBE + SNYK)
+        // ==========================================
+        stage('Quality & Security Scan') {
+            when {
+                anyOf {
+                    changeset "backoffice/**"
+                    changeset "backoffice-bff/**"
+                    changeset "cart/**"
+                    changeset "common-library/**"
+                    changeset "customer/**"
+                    changeset "delivery/**"
+                    changeset "inventory/**"
+                    changeset "location/**"
+                    changeset "media/**"
+                    changeset "order/**"
+                    changeset "payment/**"
+                    changeset "payment-paypal/**"
+                    changeset "product/**"
+                    changeset "promotion/**"
+                    changeset "rating/**"
+                    changeset "recommendation/**"
+                    changeset "sampledata/**"
+                    changeset "search/**"
+                    changeset "storefront/**"
+                    changeset "storefront-bff/**"
+                    changeset "tax/**"
+                    changeset "webhook/**"
+                    changeset "pom.xml"
+                }
+            }
+            stages {
+                stage('SonarQube Analysis') {
+                    steps {
+                        echo "[INFO] Đang chạy phân tích SonarQube..."
+                        withSonarQubeEnv('SonarQubeServer') {
+                            sh 'mvn clean verify sonar:sonar -DskipTests'
+                        }
+                    }
+                }
+                stage('Snyk OSS Scan') {
+                    steps {
+                        echo "[INFO] Đang chạy quét lỗ hổng Snyk..."
+                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
+                            sh 'npx snyk auth $SNYK_TOKEN'
+                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-report.json'
+                        }
+                    }
+                    post {
+                        always {
+                            archiveArtifacts artifacts: 'snyk-report.json', allowEmptyArchive: true
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ==========================================
