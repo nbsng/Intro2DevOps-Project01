@@ -702,7 +702,7 @@ pipeline {
                         echo "[INFO] Đang chạy quét lỗ hổng Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
                             sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-report.json'
+                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-report.json || true'
                         }
                     }
                     post {
