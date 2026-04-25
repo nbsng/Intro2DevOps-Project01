@@ -661,33 +661,33 @@ pipeline {
         // 23. QUALITY & SECURITY (SONARQUBE + SNYK)
         // ==========================================
         stage('Quality & Security Scan') {
-            when {
-                anyOf {
-                    changeset "backoffice/**"
-                    changeset "backoffice-bff/**"
-                    changeset "cart/**"
-                    changeset "common-library/**"
-                    changeset "customer/**"
-                    changeset "delivery/**"
-                    changeset "inventory/**"
-                    changeset "location/**"
-                    changeset "media/**"
-                    changeset "order/**"
-                    changeset "payment/**"
-                    changeset "payment-paypal/**"
-                    changeset "product/**"
-                    changeset "promotion/**"
-                    changeset "rating/**"
-                    changeset "recommendation/**"
-                    changeset "sampledata/**"
-                    changeset "search/**"
-                    changeset "storefront/**"
-                    changeset "storefront-bff/**"
-                    changeset "tax/**"
-                    changeset "webhook/**"
-                    changeset "pom.xml"
-                }
-            }
+            // when {
+            //     anyOf {
+            //         changeset "backoffice/**"
+            //         changeset "backoffice-bff/**"
+            //         changeset "cart/**"
+            //         changeset "common-library/**"
+            //         changeset "customer/**"
+            //         changeset "delivery/**"
+            //         changeset "inventory/**"
+            //         changeset "location/**"
+            //         changeset "media/**"
+            //         changeset "order/**"
+            //         changeset "payment/**"
+            //         changeset "payment-paypal/**"
+            //         changeset "product/**"
+            //         changeset "promotion/**"
+            //         changeset "rating/**"
+            //         changeset "recommendation/**"
+            //         changeset "sampledata/**"
+            //         changeset "search/**"
+            //         changeset "storefront/**"
+            //         changeset "storefront-bff/**"
+            //         changeset "tax/**"
+            //         changeset "webhook/**"
+            //         changeset "pom.xml"
+            //     }
+            // }
             stages {
                 stage('SonarQube Analysis') {
                     steps {
