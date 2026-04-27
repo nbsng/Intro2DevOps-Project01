@@ -1,90 +1,173 @@
 package com.yas.cart.service;
 
-
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yas.commonlibrary.config.ServiceUrlConfig;
 import com.yas.cart.viewmodel.ProductThumbnailVm;
-import java.net.URI;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.ResponseEntity;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.util.UriComponentsBuilder;
 
+@ExtendWith(MockitoExtension.class)
 class ProductServiceTest {
 
-    RestClient restClient;
+    @Mock
+    private ServiceUrlConfig serviceUrlConfig;
 
-    ServiceUrlConfig serviceUrlConfig;
+    private ProductService productService;
+    private MockRestServiceServer mockServer;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    ProductService productService;
-
-    RestClient.RequestHeadersUriSpec requestHeadersUriSpec;
-
-    RestClient.ResponseSpec responseSpec;
+    private final String BASE_URL = "http://api.yas.local/media";
 
     @BeforeEach
     void setUp() {
-        restClient = Mockito.mock(RestClient.class);
-        serviceUrlConfig = Mockito.mock(ServiceUrlConfig.class);
+        RestClient.Builder builder = RestClient.builder();
+        mockServer = MockRestServiceServer.bindTo(builder).build();
+        RestClient restClient = builder.build();
+
         productService = new ProductService(restClient, serviceUrlConfig);
-        requestHeadersUriSpec = Mockito.mock(RestClient.RequestHeadersUriSpec.class);
-        responseSpec = Mockito.mock(RestClient.ResponseSpec.class);
     }
 
-    @Test
-    void getProducts_NormalCase_ReturnProductThumbnailVms() {
+    @Nested
+    class GetProductsTest {
+        @Test
+        void getProducts_whenGivenValidIds_shouldReturnProductThumbnailVms() throws Exception {
+            List<Long> ids = List.of(1L, 2L, 3L);
+            String expectedUrl = BASE_URL + "/storefront/products/list-featured?productId=1&productId=2&productId=3";
+            
+            when(serviceUrlConfig.product()).thenReturn(BASE_URL);
 
-        List<Long> ids = List.of(1L, 2L, 3L);
-        URI url = UriComponentsBuilder
-            .fromUriString("http://api.yas.local/media")
-            .path("/storefront/products/list-featured")
-            .queryParam("productId", ids)
-            .build()
-            .toUri();
+            String jsonResponse = objectMapper.writeValueAsString(getProductThumbnailVms());
 
-        when(serviceUrlConfig.product()).thenReturn("http://api.yas.local/media");
-        when(restClient.get()).thenReturn(requestHeadersUriSpec);
-        when(requestHeadersUriSpec.uri(url)).thenReturn(requestHeadersUriSpec);
-        when(requestHeadersUriSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.toEntity(new ParameterizedTypeReference<List<ProductThumbnailVm>>() {
-        }))
-            .thenReturn(ResponseEntity.ok(getProductThumbnailVms()));
+            mockServer.expect(requestTo(expectedUrl))
+                      .andExpect(method(HttpMethod.GET))
+                      .andRespond(withSuccess(jsonResponse, MediaType.APPLICATION_JSON));
 
-        List<ProductThumbnailVm> result = productService.getProducts(ids);
+            List<ProductThumbnailVm> result = productService.getProducts(ids);
 
-        assertThat(result).hasSize(3);
-        assertThat(result.get(0).id()).isEqualTo(1);
-        assertThat(result.get(1).id()).isEqualTo(2);
-        assertThat(result.get(2).id()).isEqualTo(3);
+            mockServer.verify();
+            assertThat(result).hasSize(3);
+            assertThat(result).extracting(ProductThumbnailVm::id).containsExactly(1L, 2L, 3L);
+        }
+    }
+
+    @Nested
+    class GetProductByIdTest {
+        @Test
+        void getProductById_whenProductExists_shouldReturnProductThumbnailVm() throws Exception {
+            Long productId = 1L;
+            String expectedUrl = BASE_URL + "/storefront/products/list-featured?productId=" + productId; 
+            
+            when(serviceUrlConfig.product()).thenReturn(BASE_URL);
+
+            ProductThumbnailVm mockProduct = new ProductThumbnailVm(1L, "Product 1", "product-1", "http://example.com/product1.jpg");
+            String jsonResponse = objectMapper.writeValueAsString(List.of(mockProduct));
+
+            mockServer.expect(requestTo(expectedUrl))
+                      .andExpect(method(HttpMethod.GET))
+                      .andRespond(withSuccess(jsonResponse, MediaType.APPLICATION_JSON));
+
+            ProductThumbnailVm result = productService.getProductById(productId);
+
+            mockServer.verify();
+            assertThat(result).isNotNull();
+            assertThat(result.id()).isEqualTo(1L);
+            assertThat(result.name()).isEqualTo("Product 1");
+        }
+
+        @Test
+        void getProductById_whenProductNotFound_shouldReturnNull() throws Exception {
+            Long productId = 99L;
+            String expectedUrl = BASE_URL + "/storefront/products/list-featured?productId=" + productId; 
+            
+            when(serviceUrlConfig.product()).thenReturn(BASE_URL);
+
+            String jsonResponse = objectMapper.writeValueAsString(Collections.emptyList());
+
+            mockServer.expect(requestTo(expectedUrl))
+                      .andExpect(method(HttpMethod.GET))
+                      .andRespond(withSuccess(jsonResponse, MediaType.APPLICATION_JSON));
+
+            ProductThumbnailVm result = productService.getProductById(productId);
+
+            mockServer.verify();
+            assertThat(result).isNull();
+        }
+    }
+
+    @Nested
+    class ExistsByIdTest {
+        @Test
+        void existsById_whenProductExists_shouldReturnTrue() throws Exception {
+            Long productId = 1L;
+            String expectedUrl = BASE_URL + "/storefront/products/list-featured?productId=" + productId; 
+            
+            when(serviceUrlConfig.product()).thenReturn(BASE_URL);
+
+            ProductThumbnailVm mockProduct = new ProductThumbnailVm(1L, "Product 1", "product-1", "http://example.com/product1.jpg");
+            String jsonResponse = objectMapper.writeValueAsString(List.of(mockProduct));
+
+            mockServer.expect(requestTo(expectedUrl))
+                      .andExpect(method(HttpMethod.GET))
+                      .andRespond(withSuccess(jsonResponse, MediaType.APPLICATION_JSON));
+
+            boolean result = productService.existsById(productId);
+
+            mockServer.verify();
+            assertThat(result).isTrue();
+        }
+
+        @Test
+        void existsById_whenProductDoesNotExist_shouldReturnFalse() throws Exception {
+            Long productId = 99L;
+            String expectedUrl = BASE_URL + "/storefront/products/list-featured?productId=" + productId; 
+            
+            when(serviceUrlConfig.product()).thenReturn(BASE_URL);
+
+            String jsonResponse = objectMapper.writeValueAsString(Collections.emptyList());
+
+            mockServer.expect(requestTo(expectedUrl))
+                      .andExpect(method(HttpMethod.GET))
+                      .andRespond(withSuccess(jsonResponse, MediaType.APPLICATION_JSON));
+
+            boolean result = productService.existsById(productId);
+
+            mockServer.verify();
+            assertThat(result).isFalse();
+        }
+    }
+
+    @Nested
+    class FallbackMethodsTest {
+        @Test
+        void handleProductThumbnailFallback_whenCalled_shouldThrowException() throws Throwable {
+            Throwable dummyException = new RuntimeException("Service is down");
+
+            assertThrows(Throwable.class, () -> productService.handleProductThumbnailFallback(dummyException));
+        }
     }
 
     private List<ProductThumbnailVm> getProductThumbnailVms() {
-
-        ProductThumbnailVm product1 = new ProductThumbnailVm(
-            1L,
-            "Product 1",
-            "product-1",
-            "http://example.com/product1.jpg"
+        return List.of(
+            new ProductThumbnailVm(1L, "Product 1", "product-1", "http://example.com/product1.jpg"),
+            new ProductThumbnailVm(2L, "Product 2", "product-2", "http://example.com/product2.jpg"),
+            new ProductThumbnailVm(3L, "Product 3", "product-3", "http://example.com/product3.jpg")
         );
-        ProductThumbnailVm product2 = new ProductThumbnailVm(
-            2L,
-            "Product 2",
-            "product-2",
-            "http://example.com/product2.jpg"
-        );
-        ProductThumbnailVm product3 = new ProductThumbnailVm(
-            3L,
-            "Product 3",
-            "product-3",
-            "http://example.com/product3.jpg"
-        );
-
-        return List.of(product1, product2, product3);
     }
 }
