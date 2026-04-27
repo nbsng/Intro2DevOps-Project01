@@ -5,6 +5,7 @@ pipeline {
         jdk 'JDK 25' 
         maven 'Maven'
         nodejs 'Node 20'
+        snyk 'snyk'
     }
 
     options {
@@ -58,8 +59,7 @@ pipeline {
                             }
                             echo "[INFO] Quét Snyk..."
                             withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                                sh 'npx snyk auth $SNYK_TOKEN'
-                                sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-backoffice-report.json || true'
+                                sh 'snyk test --all-projects --json-file-output=snyk-backoffice-report.json || true'
                             }
                             archiveArtifacts artifacts: 'snyk-backoffice-report.json', allowEmptyArchive: true
                         }
@@ -88,8 +88,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-backoffice-bff-report.json --target-dir=backoffice-bff || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-backoffice-bff-report.json --target-dir=backoffice-bff || true'
                         }
                         archiveArtifacts artifacts: 'snyk-backoffice-bff-report.json', allowEmptyArchive: true
                     }
@@ -133,8 +132,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-cart-report.json --target-dir=cart || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-cart-report.json --target-dir=cart || true'
                         }
                         archiveArtifacts artifacts: 'snyk-cart-report.json', allowEmptyArchive: true
                     }
@@ -178,8 +176,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-customer-report.json --target-dir=customer || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-customer-report.json --target-dir=customer || true'
                         }
                         archiveArtifacts artifacts: 'snyk-customer-report.json', allowEmptyArchive: true
                     }
@@ -223,8 +220,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-inventory-report.json --target-dir=inventory || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-inventory-report.json --target-dir=inventory || true'
                         }
                         archiveArtifacts artifacts: 'snyk-inventory-report.json', allowEmptyArchive: true
                     }
@@ -268,8 +264,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-location-report.json --target-dir=location || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-location-report.json --target-dir=location || true'
                         }
                         archiveArtifacts artifacts: 'snyk-location-report.json', allowEmptyArchive: true
                     }
@@ -313,8 +308,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-media-report.json --target-dir=media || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-media-report.json --target-dir=media || true'
                         }
                         archiveArtifacts artifacts: 'snyk-media-report.json', allowEmptyArchive: true
                     }
@@ -358,8 +352,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-order-report.json --target-dir=order || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-order-report.json --target-dir=order || true'
                         }
                         archiveArtifacts artifacts: 'snyk-order-report.json', allowEmptyArchive: true
                     }
@@ -403,8 +396,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-payment-report.json --target-dir=payment || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-payment-report.json --target-dir=payment || true'
                         }
                         archiveArtifacts artifacts: 'snyk-payment-report.json', allowEmptyArchive: true
                     }
@@ -448,8 +440,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-payment-paypal-report.json --target-dir=payment-paypal || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-payment-paypal-report.json --target-dir=payment-paypal || true'
                         }
                         archiveArtifacts artifacts: 'snyk-payment-paypal-report.json', allowEmptyArchive: true
                     }
@@ -493,8 +484,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-product-report.json --target-dir=product || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-product-report.json --target-dir=product || true'
                         }
                         archiveArtifacts artifacts: 'snyk-product-report.json', allowEmptyArchive: true
                     }
@@ -538,8 +528,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-promotion-report.json --target-dir=promotion || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-promotion-report.json --target-dir=promotion || true'
                         }
                         archiveArtifacts artifacts: 'snyk-promotion-report.json', allowEmptyArchive: true
                     }
@@ -583,8 +572,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-rating-report.json --target-dir=rating || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-rating-report.json --target-dir=rating || true'
                         }
                         archiveArtifacts artifacts: 'snyk-rating-report.json', allowEmptyArchive: true
                     }
@@ -628,8 +616,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-recommendation-report.json --target-dir=recommendation || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-recommendation-report.json --target-dir=recommendation || true'
                         }
                         archiveArtifacts artifacts: 'snyk-recommendation-report.json', allowEmptyArchive: true
                     }
@@ -673,8 +660,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-sampledata-report.json --target-dir=sampledata || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-sampledata-report.json --target-dir=sampledata || true'
                         }
                         archiveArtifacts artifacts: 'snyk-sampledata-report.json', allowEmptyArchive: true
                     }
@@ -718,8 +704,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-search-report.json --target-dir=search || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-search-report.json --target-dir=search || true'
                         }
                         archiveArtifacts artifacts: 'snyk-search-report.json', allowEmptyArchive: true
                     }
@@ -747,8 +732,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-storefront-bff-report.json --target-dir=storefront-bff || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-storefront-bff-report.json --target-dir=storefront-bff || true'
                         }
                         archiveArtifacts artifacts: 'snyk-storefront-bff-report.json', allowEmptyArchive: true
                     }
@@ -789,8 +773,7 @@ pipeline {
                             }
                             echo "[INFO] Quét Snyk..."
                             withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                                sh 'npx snyk auth $SNYK_TOKEN'
-                                sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-storefront-report.json || true'
+                                sh 'snyk test --all-projects --json-file-output=snyk-storefront-report.json || true'
                             }
                             archiveArtifacts artifacts: 'snyk-storefront-report.json', allowEmptyArchive: true
                         }
@@ -835,8 +818,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-tax-report.json --target-dir=tax || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-tax-report.json --target-dir=tax || true'
                         }
                         archiveArtifacts artifacts: 'snyk-tax-report.json', allowEmptyArchive: true
                     }
@@ -880,8 +862,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-webhook-report.json --target-dir=webhook || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-webhook-report.json --target-dir=webhook || true'
                         }
                         archiveArtifacts artifacts: 'snyk-webhook-report.json', allowEmptyArchive: true
                     }
@@ -925,8 +906,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-common-library-report.json --target-dir=common-library || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-common-library-report.json --target-dir=common-library || true'
                         }
                         archiveArtifacts artifacts: 'snyk-common-library-report.json', allowEmptyArchive: true
                     }
@@ -981,8 +961,7 @@ pipeline {
                         }
                         echo "[INFO] Quét Snyk..."
                         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'npx snyk auth $SNYK_TOKEN'
-                            sh 'npx snyk test --all-projects --detection-depth=4 --severity-threshold=high --json-file-output=snyk-delivery-report.json --target-dir=delivery || true'
+                            sh 'snyk test --all-projects --json-file-output=snyk-delivery-report.json --target-dir=delivery || true'
                         }
                         archiveArtifacts artifacts: 'snyk-delivery-report.json', allowEmptyArchive: true
                     }
