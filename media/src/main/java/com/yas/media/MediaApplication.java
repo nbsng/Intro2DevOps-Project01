@@ -17,10 +17,10 @@ public class MediaApplication {
     public void testSonarQubeFails() {
         // 1. Lỗi bảo mật: Hardcode mật khẩu (Security Hotspot/Vulnerability)
         String dbPassword = "my_super_secret_password_123!";
-        
-        // 2. Lỗi Bug: Null Pointer Exception chắc chắn xảy ra
+
+        // 2. Lỗi Bug: Null Pointer Exception xảy ra
         String text = null;
-        if (text.equals("hello")) { 
+        if (text.equals("hello")) {
             System.out.println("Lỗi rồi!");
         }
 
