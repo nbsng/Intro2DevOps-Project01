@@ -24,7 +24,7 @@ public class MediaApplication {
             System.out.println("Lỗi rồi!");
         }
 
-        // 3. Lỗi Code Smell: Try-catch rỗng (Nuốt exception)
+        // 3. Lỗi Code Smell: Try-catch rỗng
         try {
             int a = 10 / 0;
         } catch (Exception e) {
