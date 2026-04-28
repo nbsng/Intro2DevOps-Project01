@@ -404,4 +404,4 @@ def testMavenDelivery(String svc) {
     } else {
         echo "[INFO] Không tìm thấy thư mục test trong ${svc}, bỏ qua."
     }
-}
+}//hi
