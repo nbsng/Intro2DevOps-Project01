@@ -72,7 +72,7 @@ class WebhookServiceTest {
     void test_findAllWebhooks() {
         Webhook webhook = new Webhook();
         when(webhookRepository.findAll(Sort.by(Sort.Direction.DESC, "id"))).thenReturn(List.of(webhook));
-        when(webhookMapper.toWebhookVm(webhook)).thenReturn(WebhookVm.builder().build());
+        when(webhookMapper.toWebhookVm(webhook)).thenReturn(new WebhookVm());
 
         List<WebhookVm> result = webhookService.findAllWebhooks();
 
@@ -84,7 +84,7 @@ class WebhookServiceTest {
     void test_findById_success() {
         Webhook webhook = new Webhook();
         when(webhookRepository.findById(1L)).thenReturn(Optional.of(webhook));
-        when(webhookMapper.toWebhookDetailVm(webhook)).thenReturn(WebhookDetailVm.builder().build());
+        when(webhookMapper.toWebhookDetailVm(webhook)).thenReturn(new WebhookDetailVm());
 
         WebhookDetailVm result = webhookService.findById(1L);
 
@@ -99,16 +99,15 @@ class WebhookServiceTest {
 
     @Test
     void test_create_withEvents() {
-        WebhookPostVm postVm = WebhookPostVm.builder()
-            .events(List.of(EventVm.builder().id(10L).build()))
-            .build();
+        WebhookPostVm postVm = new WebhookPostVm();
+        postVm.setEvents(List.of(EventVm.builder().id(10L).build()));
         Webhook webhook = new Webhook();
         webhook.setId(1L);
         
         when(webhookMapper.toCreatedWebhook(postVm)).thenReturn(webhook);
         when(webhookRepository.save(webhook)).thenReturn(webhook);
         when(eventRepository.findById(10L)).thenReturn(Optional.of(new com.yas.webhook.model.Event()));
-        when(webhookMapper.toWebhookDetailVm(webhook)).thenReturn(WebhookDetailVm.builder().build());
+        when(webhookMapper.toWebhookDetailVm(webhook)).thenReturn(new WebhookDetailVm());
 
         WebhookDetailVm result = webhookService.create(postVm);
 
@@ -118,9 +117,8 @@ class WebhookServiceTest {
 
     @Test
     void test_create_eventNotFound_shouldThrowException() {
-        WebhookPostVm postVm = WebhookPostVm.builder()
-            .events(List.of(EventVm.builder().id(10L).build()))
-            .build();
+        WebhookPostVm postVm = new WebhookPostVm();
+        postVm.setEvents(List.of(EventVm.builder().id(10L).build()));
         Webhook webhook = new Webhook();
         webhook.setId(1L);
 
@@ -133,9 +131,8 @@ class WebhookServiceTest {
 
     @Test
     void test_update_success() {
-        WebhookPostVm postVm = WebhookPostVm.builder()
-            .events(List.of(EventVm.builder().id(10L).build()))
-            .build();
+        WebhookPostVm postVm = new WebhookPostVm();
+        postVm.setEvents(List.of(EventVm.builder().id(10L).build()));
         Webhook existing = new Webhook();
         existing.setWebhookEvents(List.of(new WebhookEvent()));
         

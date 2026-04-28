@@ -22,7 +22,7 @@ class EventMapperTest {
     void test_toEventVm() {
         Event event = new Event();
         event.setId(1L);
-        event.setName("test-event");
+        event.setName(com.yas.webhook.model.enums.EventName.ON_PRODUCT_UPDATED);
 
         EventVm vm = eventMapper.toEventVm(event);
 

@@ -19,24 +19,24 @@ import com.yas.webhook.service.WebhookService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.security.oauth2.server.resource.autoconfigure.servlet.OAuth2ResourceServerAutoConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@WebMvcTest(WebhookController.class)
+@WebMvcTest(controllers = WebhookController.class, excludeAutoConfiguration = OAuth2ResourceServerAutoConfiguration.class)
 @AutoConfigureMockMvc(addFilters = false)
 class WebhookControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     private WebhookService webhookService;
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
     void test_getPageableWebhooks() throws Exception {
@@ -54,17 +54,18 @@ class WebhookControllerTest {
 
     @Test
     void test_getWebhook() throws Exception {
-        when(webhookService.findById(anyLong())).thenReturn(WebhookDetailVm.builder().build());
+        when(webhookService.findById(anyLong())).thenReturn(new WebhookDetailVm());
         mockMvc.perform(get("/backoffice/webhooks/1"))
             .andExpect(status().isOk());
     }
 
     @Test
     void test_createWebhook() throws Exception {
-        WebhookPostVm postVm = WebhookPostVm.builder()
-            .payloadUrl("http://test.com")
-            .build();
-        when(webhookService.create(any(WebhookPostVm.class))).thenReturn(WebhookDetailVm.builder().id(1L).build());
+        WebhookPostVm postVm = new WebhookPostVm();
+        postVm.setPayloadUrl("http://test.com");
+        WebhookDetailVm detailVm = new WebhookDetailVm();
+        detailVm.setId(1L);
+        when(webhookService.create(any(WebhookPostVm.class))).thenReturn(detailVm);
         
         mockMvc.perform(post("/backoffice/webhooks")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -74,9 +75,8 @@ class WebhookControllerTest {
 
     @Test
     void test_updateWebhook() throws Exception {
-        WebhookPostVm postVm = WebhookPostVm.builder()
-            .payloadUrl("http://test.com")
-            .build();
+        WebhookPostVm postVm = new WebhookPostVm();
+        postVm.setPayloadUrl("http://test.com");
         doNothing().when(webhookService).update(any(WebhookPostVm.class), anyLong());
 
         mockMvc.perform(put("/backoffice/webhooks/1")

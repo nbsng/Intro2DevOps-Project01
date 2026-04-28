@@ -70,11 +70,10 @@ class WebhookMapperTest {
 
     @Test
     void test_toCreatedWebhook() {
-        WebhookPostVm postVm = WebhookPostVm.builder()
-            .payloadUrl("http://test.com")
-            .secret("secret")
-            .isActive(true)
-            .build();
+        WebhookPostVm postVm = new WebhookPostVm();
+        postVm.setPayloadUrl("http://test.com");
+        postVm.setSecret("secret");
+        postVm.setIsActive(true);
 
         Webhook webhook = webhookMapper.toCreatedWebhook(postVm);
 
@@ -88,11 +87,10 @@ class WebhookMapperTest {
     void test_toUpdatedWebhook() {
         Webhook existing = new Webhook();
         existing.setId(1L);
-        WebhookPostVm postVm = WebhookPostVm.builder()
-            .payloadUrl("http://updated.com")
-            .secret("new-secret")
-            .isActive(false)
-            .build();
+        WebhookPostVm postVm = new WebhookPostVm();
+        postVm.setPayloadUrl("http://updated.com");
+        postVm.setSecret("new-secret");
+        postVm.setIsActive(false);
 
         Webhook updated = webhookMapper.toUpdatedWebhook(existing, postVm);
 

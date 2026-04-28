@@ -2,6 +2,7 @@ package com.yas.webhook.integration.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -47,7 +48,7 @@ class WebhookApiTest {
 
         verify(restClient).post();
         verify(requestBodyUriSpec).uri(url);
-        verify(requestBodySpec).header(WebhookApi.X_HUB_SIGNATURE_256, anyString());
+        verify(requestBodySpec).header(eq(WebhookApi.X_HUB_SIGNATURE_256), anyString());
         verify(requestBodySpec).body(payload);
         verify(requestBodySpec).retrieve();
         verify(responseSpec).toBodilessEntity();

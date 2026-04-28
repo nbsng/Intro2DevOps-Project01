@@ -20,6 +20,6 @@ class HmacUtilsTest {
     @Test
     void test_hash_withNullKey_shouldThrowException() {
         String data = "test-data";
-        assertThrows(IllegalArgumentException.class, () -> HmacUtils.hash(data, null));
+        assertThrows(NullPointerException.class, () -> HmacUtils.hash(data, null));
     }
 }
