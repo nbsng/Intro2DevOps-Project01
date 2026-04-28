@@ -28,7 +28,7 @@ public class MediaApplication {
         try {
             int a = 10 / 0;
         } catch (Exception e) {
-            // Cố tình để trống, SonarQube cực ghét điều này (test)
+            // Cố tình để trống, SonarQube cực ghét điều này (test)2
         }
     }
 
