@@ -8,11 +8,6 @@ pipeline {
         snyk 'snyk'
     }
 
-    environment {
-        SNYK_HOME = tool name: 'snyk' 
-        PATH = "${SNYK_HOME}:${env.PATH}"
-    }
-
     options {
         disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '5'))
