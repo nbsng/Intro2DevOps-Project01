@@ -1,3 +1,6 @@
+// Khai báo biến toàn cục để lưu danh sách các thư mục có sự thay đổi
+def changedFolders = []
+
 pipeline {
     agent any
 
@@ -14,9 +17,64 @@ pipeline {
     }
 
     stages {
+        // ==========================================
+        // 0. SYSTEM: TỰ ĐỘNG PHÁT HIỆN SỰ THAY ĐỔI CỦA MÃ NGUỒN (NATIVE GIT DIFF)
+        // ==========================================
+        stage('System: Detect Changes') {
+            steps {
+                script {
+                    echo "[INFO] Đang phân tích sự thay đổi của mã nguồn (Native Git Diff)..."
+                    
+                    def baseRef = ""
+                    
+                    if (env.CHANGE_ID) {
+                        // TRƯỜNG HỢP 1: LÀ PULL REQUEST
+                        // So sánh commit hiện tại với branch mục tiêu (target branch)
+                        baseRef = "origin/${env.CHANGE_TARGET}"
+                        echo "[INFO] Phát hiện Pull Request. Đang so sánh HEAD với ${baseRef}..."
+                        
+                    } else if (currentBuild.previousBuild == null) {
+                        // TRƯỜNG HỢP 2: LẦN BUILD ĐẦU TIÊN CỦA NHÁNH (NHÁNH MỚI TÁCH)
+                        // Lấy chính xác điểm rẽ nhánh (Merge Base) so với main
+                        baseRef = sh(script: "git merge-base HEAD origin/main", returnStdout: true).trim()
+                        echo "[INFO] Nhánh mới được tạo (First Build). So sánh từ điểm rẽ nhánh: ${baseRef}..."
+                        
+                    } else {
+                        // TRƯỜNG HỢP 3: PUSH TRÊN CÙNG NHÁNH TỪ LẦN THỨ 2 TRỞ ĐI
+                        // So sánh HEAD với commit build trước đó
+                        baseRef = env.GIT_PREVIOUS_COMMIT ?: "HEAD~1"
+                        echo "[INFO] Push cập nhật nhánh. So sánh HEAD với commit build trước đó (${baseRef})..."
+                    }
+
+                    // Kéo thông tin mới nhất từ Git Server để có data so sánh
+                    sh "git fetch origin || true"
+
+                    // Chạy lệnh git diff (3 dấu chấm) để lấy danh sách các file thay đổi
+                    def diffOutput = sh(
+                        script: "git diff --name-only ${baseRef}...HEAD || true",
+                        returnStdout: true
+                    ).trim()
+
+                    // Phân tích kết quả: Cắt lấy tên thư mục cấp 1 (Tên các services)
+                    if (diffOutput) {
+                        def files = diffOutput.split('\n')
+                        for (int i = 0; i < files.length; i++) {
+                            def pathParts = files[i].split('/')
+                            if (pathParts.length > 0) {
+                                changedFolders.add(pathParts[0])
+                            }
+                        }
+                    }
+                    
+                    // Lọc bỏ các thư mục trùng lặp
+                    changedFolders = changedFolders.unique()
+                    echo "=> CÁC DỊCH VỤ CÓ SỰ THAY ĐỔI LÀ: ${changedFolders}"
+                }
+            }
+        }
 
         // ==========================================
-        // 0. GITLEAKS - QUÉT LỘ MẬT KHẨU/TOKEN TOÀN DỰ ÁN
+        // 0.5 GITLEAKS - QUÉT LỘ MẬT KHẨU/TOKEN TOÀN DỰ ÁN
         // ==========================================
         stage('Security: Gitleaks Scan') {
             steps {
@@ -30,7 +88,7 @@ pipeline {
         // 1. BACKOFFICE (Node.js)
         // ==========================================
         stage('CI: Backoffice') {
-            when { changeset "backoffice/**" }
+            when { expression { return changedFolders.contains('backoffice') } }
             stages {
                 stage('Build') {
                     steps {
@@ -72,7 +130,7 @@ pipeline {
         // 2. BACKOFFICE-BFF (Maven)
         // ==========================================
         stage('CI: Backoffice-bff') {
-            when { changeset "backoffice-bff/**" }
+            when { expression { return changedFolders.contains('backoffice-bff') } }
             stages {
                 stage('Verify & Checkstyle') {
                     steps {
@@ -100,7 +158,7 @@ pipeline {
         // 3. CART (Maven Core)
         // ==========================================
         stage('CI: Cart') {
-            when { changeset "cart/**" }
+            when { expression { return changedFolders.contains('cart') } }
             stages {
                 stage('Build') {
                     steps {
@@ -144,7 +202,7 @@ pipeline {
         // 4. CUSTOMER (Maven Core)
         // ==========================================
         stage('CI: Customer') {
-            when { changeset "customer/**" }
+            when { expression { return changedFolders.contains('customer') } }
             stages {
                 stage('Build') {
                     steps {
@@ -188,7 +246,7 @@ pipeline {
         // 5. INVENTORY (Maven Core)
         // ==========================================
         stage('CI: Inventory') {
-            when { changeset "inventory/**" }
+            when { expression { return changedFolders.contains('inventory') } }
             stages {
                 stage('Build') {
                     steps {
@@ -232,7 +290,7 @@ pipeline {
         // 6. LOCATION (Maven Core)
         // ==========================================
         stage('CI: Location') {
-            when { changeset "location/**" }
+            when { expression { return changedFolders.contains('location') } }
             stages {
                 stage('Build') {
                     steps {
@@ -276,7 +334,7 @@ pipeline {
         // 7. MEDIA (Maven Core)
         // ==========================================
         stage('CI: Media') {
-            when { changeset "media/**" }
+            when { expression { return changedFolders.contains('media') } }
             stages {
                 stage('Build') {
                     steps {
@@ -320,7 +378,7 @@ pipeline {
         // 8. ORDER (Maven Core)
         // ==========================================
         stage('CI: Order') {
-            when { changeset "order/**" }
+            when { expression { return changedFolders.contains('order') } }
             stages {
                 stage('Build') {
                     steps {
@@ -364,7 +422,7 @@ pipeline {
         // 9. PAYMENT (Maven Core)
         // ==========================================
         stage('CI: Payment') {
-            when { changeset "payment/**" }
+            when { expression { return changedFolders.contains('payment') } }
             stages {
                 stage('Build') {
                     steps {
@@ -408,7 +466,7 @@ pipeline {
         // 10. PAYMENT-PAYPAL (Maven Core)
         // ==========================================
         stage('CI: Payment Paypal') {
-            when { changeset "payment-paypal/**" }
+            when { expression { return changedFolders.contains('payment-paypal') } }
             stages {
                 stage('Build') {
                     steps {
@@ -452,7 +510,7 @@ pipeline {
         // 11. PRODUCT (Maven Core)
         // ==========================================
         stage('CI: Product') {
-            when { changeset "product/**" }
+            when { expression { return changedFolders.contains('product') } }
             stages {
                 stage('Build') {
                     steps {
@@ -496,7 +554,7 @@ pipeline {
         // 12. PROMOTION (Maven Core)
         // ==========================================
         stage('CI: Promotion') {
-            when { changeset "promotion/**" }
+            when { expression { return changedFolders.contains('promotion') } }
             stages {
                 stage('Build') {
                     steps {
@@ -540,7 +598,7 @@ pipeline {
         // 13. RATING (Maven Core)
         // ==========================================
         stage('CI: Rating') {
-            when { changeset "rating/**" }
+            when { expression { return changedFolders.contains('rating') } }
             stages {
                 stage('Build') {
                     steps {
@@ -584,7 +642,7 @@ pipeline {
         // 14. RECOMMENDATION (Maven Core)
         // ==========================================
         stage('CI: Recommendation') {
-            when { changeset "recommendation/**" }
+            when { expression { return changedFolders.contains('recommendation') } }
             stages {
                 stage('Build') {
                     steps {
@@ -628,7 +686,7 @@ pipeline {
         // 15. SAMPLE DATA (Maven Core)
         // ==========================================
         stage('CI: Sample data') {
-            when { changeset "sampledata/**" }
+            when { expression { return changedFolders.contains('sampledata') } }
             stages {
                 stage('Build') {
                     steps {
@@ -672,7 +730,7 @@ pipeline {
         // 16. SEARCH (Maven Core)
         // ==========================================
         stage('CI: Search') {
-            when { changeset "search/**" }
+            when { expression { return changedFolders.contains('search') } }
             stages {
                 stage('Build') {
                     steps {
@@ -716,7 +774,7 @@ pipeline {
         // 17. STOREFRONT-BFF (Maven)
         // ==========================================
         stage('CI: Storefront-bff') {
-            when { changeset "storefront-bff/**" }
+            when { expression { return changedFolders.contains('storefront-bff') } }
             stages {
                 stage('Verify & Checkstyle') {
                     steps {
@@ -744,7 +802,7 @@ pipeline {
         // 18. STOREFRONT (Node.js)
         // ==========================================
         stage('CI: Storefront') {
-            when { changeset "storefront/**" }
+            when { expression { return changedFolders.contains('storefront') } }
             stages {
                 stage('Build') {
                     steps {
@@ -786,7 +844,7 @@ pipeline {
         // 19. TAX (Maven Core)
         // ==========================================
         stage('CI: Tax') {
-            when { changeset "tax/**" }
+            when { expression { return changedFolders.contains('tax') } }
             stages {
                 stage('Build') {
                     steps {
@@ -830,7 +888,7 @@ pipeline {
         // 20. WEBHOOK (Maven Core)
         // ==========================================
         stage('CI: Webhook') {
-            when { changeset "webhook/**" }
+            when { expression { return changedFolders.contains('webhook') } }
             stages {
                 stage('Build') {
                     steps {
@@ -874,7 +932,7 @@ pipeline {
         // 21. COMMON-LIBRARY (Maven Core)
         // ==========================================
         stage('CI: Common-library') {
-            when { changeset "common-library/**" }
+            when { expression { return changedFolders.contains('common-library') } }
             stages {
                 stage('Build') {
                     steps {
@@ -918,7 +976,7 @@ pipeline {
         // 22. DELIVERY (Maven Core)
         // ==========================================
         stage('CI: Delivery') {
-            when { changeset "delivery/**" }
+            when { expression { return changedFolders.contains('delivery') } }
             stages {
                 stage('Build') {
                     steps {
