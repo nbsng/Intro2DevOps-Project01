@@ -98,6 +98,7 @@ class TaxClassControllerTest {
             .andExpect(status().isOk());
 
         verify(taxClassService).getPageableTaxClasses(0, 10);
+        
     }
 
     @Test
