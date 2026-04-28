@@ -29,6 +29,9 @@ pipeline {
                     if (env.CHANGE_ID) {
                         baseRef = "origin/${env.CHANGE_TARGET}"
                         echo "[INFO] Phát hiện Pull Request. Đang so sánh HEAD với ${baseRef}..."
+
+                        // [FIX] Ép Jenkins fetch đích danh nhánh target của PR về local
+                        sh "git fetch origin ${env.CHANGE_TARGET}:refs/remotes/origin/${env.CHANGE_TARGET} --no-tags || true"
                     } else if (currentBuild.previousBuild == null) {
                         echo "[INFO] Nhánh mới được tạo (First Build). Đang dò tìm nhánh mẹ gần nhất..."
                         baseRef = sh(script: '''
