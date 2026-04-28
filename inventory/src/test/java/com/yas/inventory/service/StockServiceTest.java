@@ -275,4 +275,91 @@ class StockServiceTest {
             assertThat(stock.getQuantity()).isEqualTo(100L);
         }
     }
+
+    @Nested
+    @DisplayName("getStocksByWarehouseIdAndProductNameAndSku()")
+    class GetStocksByWarehouseIdAndProductNameAndSkuTests {
+
+        @Test
+        @DisplayName("given valid warehouse and product filters, returns stock view models")
+        void givenValidWarehouseAndProductFilters_whenGet_thenReturnsStockVms() {
+            // Arrange
+            Long warehouseId = 1L;
+            String productName = "Test Product";
+            String productSku = "SKU-001";
+
+            ProductInfoVm productInfo = new ProductInfoVm(1L, "Product A", "SKU-A", true);
+            ProductInfoVm productInfo2 = new ProductInfoVm(2L, "Product B", "SKU-B", true);
+
+            when(warehouseService.getProductWarehouse(warehouseId, productName, productSku,
+                com.yas.inventory.model.enumeration.FilterExistInWhSelection.YES))
+                .thenReturn(List.of(productInfo, productInfo2));
+
+            Stock stock1 = buildStock(1L, 1L, 100L);
+            Stock stock2 = buildStock(2L, 2L, 200L);
+            when(stockRepository.findByWarehouseIdAndProductIdIn(warehouseId, List.of(1L, 2L)))
+                .thenReturn(List.of(stock1, stock2));
+
+            // Act
+            var result = stockService.getStocksByWarehouseIdAndProductNameAndSku(
+                warehouseId, productName, productSku);
+
+            // Assert
+            assertThat(result).hasSize(2);
+            assertThat(result.get(0).productId()).isEqualTo(1L);
+            assertThat(result.get(0).productName()).isEqualTo("Product A");
+            assertThat(result.get(0).productSku()).isEqualTo("SKU-A");
+            assertThat(result.get(1).productId()).isEqualTo(2L);
+            assertThat(result.get(1).productName()).isEqualTo("Product B");
+            assertThat(result.get(1).productSku()).isEqualTo("SKU-B");
+        }
+
+        @Test
+        @DisplayName("given no products found, returns empty list but still calls repository with empty list")
+        void givenNoProductsFound_whenGet_thenReturnsEmptyList() {
+            // Arrange
+            Long warehouseId = 1L;
+            String productName = "Non-existent";
+            String productSku = "SKU-999";
+
+            when(warehouseService.getProductWarehouse(warehouseId, productName, productSku,
+                com.yas.inventory.model.enumeration.FilterExistInWhSelection.YES))
+                .thenReturn(Collections.emptyList());
+
+            when(stockRepository.findByWarehouseIdAndProductIdIn(warehouseId, Collections.emptyList()))
+                .thenReturn(Collections.emptyList());
+
+            // Act
+            var result = stockService.getStocksByWarehouseIdAndProductNameAndSku(
+                warehouseId, productName, productSku);
+
+            // Assert
+            assertThat(result).isEmpty();
+            verify(stockRepository).findByWarehouseIdAndProductIdIn(warehouseId, Collections.emptyList());
+        }
+
+        @Test
+        @DisplayName("given products found but no stocks, returns empty list")
+        void givenProductsFoundButNoStocks_whenGet_thenReturnsEmptyList() {
+            // Arrange
+            Long warehouseId = 1L;
+            String productName = "Test Product";
+            String productSku = "SKU-001";
+
+            ProductInfoVm productInfo = new ProductInfoVm(1L, "Product A", "SKU-A", true);
+            when(warehouseService.getProductWarehouse(warehouseId, productName, productSku,
+                com.yas.inventory.model.enumeration.FilterExistInWhSelection.YES))
+                .thenReturn(List.of(productInfo));
+
+            when(stockRepository.findByWarehouseIdAndProductIdIn(warehouseId, List.of(1L)))
+                .thenReturn(Collections.emptyList());
+
+            // Act
+            var result = stockService.getStocksByWarehouseIdAndProductNameAndSku(
+                warehouseId, productName, productSku);
+
+            // Assert
+            assertThat(result).isEmpty();
+        }
+    }
 }

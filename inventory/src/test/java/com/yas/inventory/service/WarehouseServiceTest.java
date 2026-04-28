@@ -10,6 +10,8 @@ import com.yas.inventory.viewmodel.address.AddressVm;
 import com.yas.inventory.viewmodel.warehouse.WarehouseDetailVm;
 import com.yas.inventory.viewmodel.warehouse.WarehouseGetVm;
 import com.yas.inventory.viewmodel.warehouse.WarehouseListGetVm;
+import com.yas.inventory.model.enumeration.FilterExistInWhSelection;
+import com.yas.inventory.viewmodel.product.ProductInfoVm;
 import com.yas.inventory.viewmodel.warehouse.WarehousePostVm;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -23,6 +25,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -328,6 +331,98 @@ class WarehouseServiceTest {
 
             assertThat(result.isLast()).isFalse();
             assertThat(result.totalPages()).isEqualTo(3);
+        }
+    }
+
+    @Nested
+    @DisplayName("getProductWarehouse()")
+    class GetProductWarehouseTests {
+
+        @Test
+        @DisplayName("given valid warehouse and product filters, returns products with existStatus")
+        void givenValidWarehouseAndFilters_whenGetProductWarehouse_thenReturnProductsWithExistStatus() {
+            // Arrange
+            Long warehouseId = 1L;
+            String productName = "Test Product";
+            String productSku = "SKU-001";
+            FilterExistInWhSelection existStatus = FilterExistInWhSelection.YES;
+
+            List<Long> productIds = List.of(100L, 200L);
+            List<ProductInfoVm> filteredProducts = List.of(
+                new ProductInfoVm(100L, "Product A", "SKU-A", true),
+                new ProductInfoVm(200L, "Product B", "SKU-B", true)
+            );
+
+            when(stockRepository.getProductIdsInWarehouse(warehouseId)).thenReturn(productIds);
+            when(productService.filterProducts(productName, productSku, productIds, existStatus))
+                .thenReturn(filteredProducts);
+
+            // Act
+            List<ProductInfoVm> result = warehouseService.getProductWarehouse(
+                warehouseId, productName, productSku, existStatus);
+
+            // Assert
+            assertThat(result).hasSize(2);
+            assertThat(result.get(0).id()).isEqualTo(100L);
+            assertThat(result.get(0).name()).isEqualTo("Product A");
+            assertThat(result.get(0).sku()).isEqualTo("SKU-A");
+            assertThat(result.get(0).existInWh()).isTrue();
+            assertThat(result.get(1).id()).isEqualTo(200L);
+            assertThat(result.get(1).existInWh()).isTrue();
+
+            verify(stockRepository).getProductIdsInWarehouse(warehouseId);
+            verify(productService).filterProducts(productName, productSku, productIds, existStatus);
+        }
+
+        @Test
+        @DisplayName("given empty productIds, returns filtered products without mapping existStatus")
+        void givenEmptyProductIds_whenGetProductWarehouse_thenReturnFilteredProducts() {
+            // Arrange
+            Long warehouseId = 1L;
+            String productName = "Test";
+            String productSku = "SKU";
+            FilterExistInWhSelection existStatus = FilterExistInWhSelection.YES;
+
+            List<Long> emptyProductIds = Collections.emptyList();
+            List<ProductInfoVm> filteredProducts = List.of(
+                new ProductInfoVm(100L, "Product A", "SKU-A", true)
+            );
+
+            when(stockRepository.getProductIdsInWarehouse(warehouseId)).thenReturn(emptyProductIds);
+            when(productService.filterProducts(productName, productSku, emptyProductIds, existStatus))
+                .thenReturn(filteredProducts);
+
+            // Act
+            List<ProductInfoVm> result = warehouseService.getProductWarehouse(
+                warehouseId, productName, productSku, existStatus);
+
+            // Assert
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).id()).isEqualTo(100L);
+            // When productIds is empty, existInWh should not be remapped
+            assertThat(result.get(0).existInWh()).isTrue();
+        }
+
+        @Test
+        @DisplayName("given no products match filter, returns empty list")
+        void givenNoMatchingProducts_whenGetProductWarehouse_thenReturnEmptyList() {
+            // Arrange
+            Long warehouseId = 1L;
+            String productName = "Non-existent";
+            String productSku = "SKU-999";
+            FilterExistInWhSelection existStatus = FilterExistInWhSelection.YES;
+
+            List<Long> productIds = List.of(100L, 200L);
+            when(stockRepository.getProductIdsInWarehouse(warehouseId)).thenReturn(productIds);
+            when(productService.filterProducts(productName, productSku, productIds, existStatus))
+                .thenReturn(Collections.emptyList());
+
+            // Act
+            List<ProductInfoVm> result = warehouseService.getProductWarehouse(
+                warehouseId, productName, productSku, existStatus);
+
+            // Assert
+            assertThat(result).isEmpty();
         }
     }
 }
