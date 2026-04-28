@@ -25,7 +25,12 @@ class WebhookMapperTest {
 
     @BeforeEach
     void setUp() {
-        webhookMapper = Mappers.getMapper(WebhookMapper.class);
+        try {
+            webhookMapper = Mappers.getMapper(WebhookMapper.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new RuntimeException(e);
+        }
     }
 
     @Test
