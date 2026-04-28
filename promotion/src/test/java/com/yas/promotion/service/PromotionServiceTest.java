@@ -18,6 +18,7 @@ import com.yas.promotion.viewmodel.ProductVm;
 import com.yas.promotion.viewmodel.PromotionDetailVm;
 import com.yas.promotion.viewmodel.PromotionListVm;
 import com.yas.promotion.viewmodel.PromotionPostVm;
+import com.yas.promotion.viewmodel.PromotionPutVm;
 import com.yas.promotion.viewmodel.PromotionVerifyVm;
 import java.time.Instant;
 import java.time.ZonedDateTime;
@@ -41,6 +42,8 @@ class PromotionServiceTest {
     private ProductService productService;
     @Autowired
     private PromotionService promotionService;
+    @Autowired
+    private com.yas.promotion.repository.PromotionUsageRepository promotionUsageRepository;
 
     private Promotion promotion1;
     private Promotion wrongRangeDatePromotion;
@@ -135,7 +138,9 @@ class PromotionServiceTest {
 
     @AfterEach
     void tearDown() {
+        promotionUsageRepository.deleteAll();
         promotionRepository.deleteAll();
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -348,5 +353,96 @@ class PromotionServiceTest {
                 2L
             )
         );
+    }
+
+    @Test
+    void updatePromotion_ThenSuccess() {
+        PromotionPutVm putVm = PromotionPutVm.builder()
+            .id(promotion1.getId())
+            .name("Updated Name")
+            .slug("updated-slug")
+            .description("Updated Description")
+            .couponCode("updatedCode")
+            .applyTo(ApplyTo.PRODUCT)
+            .usageType(UsageType.UNLIMITED)
+            .usageLimit(100)
+            .discountType(DiscountType.FIXED)
+            .discountAmount(50L)
+            .discountPercentage(0L)
+            .isActive(true)
+            .startDate(Date.from(Instant.now()))
+            .endDate(Date.from(Instant.now().plus(10, ChronoUnit.DAYS)))
+            .minimumOrderPurchaseAmount(10L)
+            .productIds(List.of(1L))
+            .build();
+
+        PromotionDetailVm result = promotionService.updatePromotion(putVm);
+        assertEquals("Updated Name", result.name());
+        assertEquals("updated-slug", result.slug());
+        assertEquals("updatedCode", result.couponCode());
+    }
+
+    @Test
+    void updatePromotion_WhenNotFound_ThenNotFoundExceptionThrown() {
+        PromotionPutVm putVm = PromotionPutVm.builder().id(999L).build();
+        assertThrows(NotFoundException.class, () -> promotionService.updatePromotion(putVm));
+    }
+
+    @Test
+    void deletePromotion_ThenSuccess() {
+        promotionService.deletePromotion(promotion1.getId());
+        var exception = assertThrows(NotFoundException.class, () -> promotionService.getPromotion(promotion1.getId()));
+        assertEquals(String.format(Constants.ErrorCode.PROMOTION_NOT_FOUND, promotion1.getId()), exception.getMessage());
+    }
+
+    @Test
+    void deletePromotion_WhenInUse_ThenBadRequestExceptionThrown() {
+        com.yas.promotion.model.PromotionUsage usage = com.yas.promotion.model.PromotionUsage.builder()
+            .promotion(promotion1)
+            .userId("user1")
+            .productId(1L)
+            .orderId(1L)
+            .build();
+        promotionUsageRepository.save(usage);
+        
+        BadRequestException exception = assertThrows(BadRequestException.class, () -> promotionService.deletePromotion(promotion1.getId()));
+        assertEquals("Can't delete promotion " + promotion1.getId() + " because it is in use", exception.getMessage());
+    }
+
+    @Test
+    void updateUsagePromotion_ThenSuccess() {
+        org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken auth = 
+            org.mockito.Mockito.mock(org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken.class);
+        org.springframework.security.oauth2.jwt.Jwt jwt = org.mockito.Mockito.mock(org.springframework.security.oauth2.jwt.Jwt.class);
+        org.mockito.Mockito.when(auth.getToken()).thenReturn(jwt);
+        org.mockito.Mockito.when(jwt.getSubject()).thenReturn("user1");
+        org.springframework.security.core.context.SecurityContext securityContext = org.mockito.Mockito.mock(org.springframework.security.core.context.SecurityContext.class);
+        org.mockito.Mockito.when(securityContext.getAuthentication()).thenReturn(auth);
+        org.springframework.security.core.context.SecurityContextHolder.setContext(securityContext);
+
+        com.yas.promotion.viewmodel.PromotionUsageVm usageVm = 
+            new com.yas.promotion.viewmodel.PromotionUsageVm(promotion1.getCouponCode(), 1L, "user1", 1L);
+        int initialCount = promotion1.getUsageCount();
+        
+        promotionService.updateUsagePromotion(List.of(usageVm));
+        
+        Promotion updated = promotionRepository.findById(promotion1.getId()).get();
+        assertEquals(initialCount + 1, updated.getUsageCount());
+    }
+
+    @Test
+    void updateUsagePromotion_WhenNotFound_ThenNotFoundExceptionThrown() {
+        org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken auth = 
+            org.mockito.Mockito.mock(org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken.class);
+        org.springframework.security.oauth2.jwt.Jwt jwt = org.mockito.Mockito.mock(org.springframework.security.oauth2.jwt.Jwt.class);
+        org.mockito.Mockito.when(auth.getToken()).thenReturn(jwt);
+        org.mockito.Mockito.when(jwt.getSubject()).thenReturn("user1");
+        org.springframework.security.core.context.SecurityContext securityContext = org.mockito.Mockito.mock(org.springframework.security.core.context.SecurityContext.class);
+        org.mockito.Mockito.when(securityContext.getAuthentication()).thenReturn(auth);
+        org.springframework.security.core.context.SecurityContextHolder.setContext(securityContext);
+
+        com.yas.promotion.viewmodel.PromotionUsageVm usageVm = 
+            new com.yas.promotion.viewmodel.PromotionUsageVm("invalidCode", 1L, "user1", 1L);
+        assertThrows(NotFoundException.class, () -> promotionService.updateUsagePromotion(List.of(usageVm)));
     }
 }
