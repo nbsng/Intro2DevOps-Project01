@@ -34,6 +34,10 @@ public class ProductSyncService {
         } else if (productCdcMessage.getAfter() != null) {
             var operation = productCdcMessage.getOp();
             var product = productCdcMessage.getAfter();
+            if (operation == null) {
+                log.warn("Operation is null for product: '{}'", product.getId());
+                return;
+            }
             switch (operation) {
                 case CREATE, READ -> productVectorSyncService.createProductVector(product);
                 case UPDATE -> productVectorSyncService.updateProductVector(product);

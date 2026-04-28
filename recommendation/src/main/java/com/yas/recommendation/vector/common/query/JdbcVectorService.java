@@ -18,7 +18,7 @@ import org.springframework.stereotype.Service;
  * Jdbc Vector service support native query vector search for document.
  */
 @Service
-class JdbcVectorService {
+public class JdbcVectorService {
 
     public static final String DEFAULT_DOCID_PREFIX = "PRODUCT";
 
