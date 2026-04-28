@@ -34,18 +34,29 @@ pipeline {
                         sh "git fetch origin ${env.CHANGE_TARGET}:refs/remotes/origin/${env.CHANGE_TARGET} --no-tags || true"
                     } else if (currentBuild.previousBuild == null) {
                         echo "[INFO] Nhánh mới được tạo (First Build). Đang dò tìm nhánh mẹ gần nhất..."
-                        baseRef = sh(script: '''
+                        
+                        baseRef = sh(script: '''#!/bin/bash
+                            # 1. Tắt cơ chế tự sập Pipeline khi có lỗi shell
+                            set +e
+                            
+                            # 2. Tải TẤT CẢ các nhánh từ remote về local để thuật toán có data đối chiếu
+                            # Ép tải vào refs/remotes/origin/* và giấu log đi để không làm hỏng kết quả trả về
+                            git fetch origin '+refs/heads/*:refs/remotes/origin/*' --no-tags > /dev/null 2>&1
+                            
+                            # 3. Thuật toán dò tìm nhánh mẹ
                             CURRENT_BRANCH=${BRANCH_NAME}
                             git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v "origin/${CURRENT_BRANCH}" | while read branch; do
-                                mb=$(git merge-base HEAD "$branch" 2>/dev/null || true)
+                                mb=$(git merge-base HEAD "$branch" 2>/dev/null)
                                 if [ -n "$mb" ]; then
-                                    dist=$(git rev-list --count "$mb"..HEAD)
+                                    dist=$(git rev-list --count "$mb"..HEAD 2>/dev/null)
                                     echo "$dist $mb $branch"
                                 fi
                             done | sort -n | head -n 1 | awk '{print $2}'
                         ''', returnStdout: true).trim()
                         
-                        if (!baseRef) { baseRef = "HEAD~1" }
+                        if (!baseRef) { 
+                            baseRef = "HEAD~1" 
+                        }
                         echo "[INFO] Đã tìm thấy điểm rẽ nhánh gốc: ${baseRef}..."
                     } else {
                         baseRef = env.GIT_PREVIOUS_COMMIT ?: "HEAD~1"
