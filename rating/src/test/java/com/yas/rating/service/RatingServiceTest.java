@@ -28,7 +28,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
@@ -180,6 +182,44 @@ class RatingServiceTest {
                 () -> ratingService.createRating(ratingPostVm));
 
         assertEquals("Resource already existed", exception.getMessage());
+    }
+
+    @Test
+    void createRating_CustomerNotFound_ShouldThrowNotFoundException() {
+        RatingPostVm ratingPostVm = RatingPostVm.builder().content("comment 4").productName("product3").star(4).productId(3L).build();
+
+        Jwt jwt = mock(Jwt.class);
+        JwtAuthenticationToken authentication = mock(JwtAuthenticationToken.class);
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+        when(authentication.getToken()).thenReturn(jwt);
+        when(authentication.getName()).thenReturn(userId);
+        when(jwt.getSubject()).thenReturn(userId);
+
+        when(orderService.checkOrderExistsByProductAndUserWithStatus(anyLong()))
+            .thenReturn(new OrderExistsByProductAndUserGetVm(true));
+        when(customerService.getCustomer()).thenReturn(null);
+
+        NotFoundException exception = assertThrows(NotFoundException.class,
+            () -> ratingService.createRating(ratingPostVm));
+
+        assertEquals("CUSTOMER " + userId + " is not found", exception.getMessage());
+    }
+
+    @Test
+    void createRating_AnonymousAuth_ShouldThrowAccessDeniedException() {
+        RatingPostVm ratingPostVm = RatingPostVm.builder().content("comment 4").productName("product3").star(4).productId(3L).build();
+
+        AnonymousAuthenticationToken authentication = new AnonymousAuthenticationToken(
+            "anonymous",
+            "anonymousUser",
+            List.of(new SimpleGrantedAuthority("ROLE_ANONYMOUS"))
+        );
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        AccessDeniedException exception = assertThrows(AccessDeniedException.class,
+            () -> ratingService.createRating(ratingPostVm));
+
+        assertEquals("ACCESS_DENIED", exception.getMessage());
     }
 
     @Test
