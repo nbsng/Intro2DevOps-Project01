@@ -186,8 +186,6 @@ class ProductSyncDataServiceTest {
         mockProductThumbnailVmsByUri();
         ProductEsDetailVm productEsDetailVm = getProductThumbnailVms();
 
-        when(productSyncDataService.getProductEsDetailById(ID)).thenReturn(productEsDetailVm);
-
         productSyncDataService.createProduct(ID);
 
         ArgumentCaptor<Product> argumentCaptor = ArgumentCaptor.forClass(Product.class);
@@ -217,6 +215,17 @@ class ProductSyncDataServiceTest {
         productSyncDataService.deleteProduct(id);
 
         verify(productRepository).deleteById(id);
+    }
+
+    @Test
+    void testDeleteProduct_whenProductDoesNotExist_doesNothing() {
+        Long id = 1L;
+
+        when(productRepository.existsById(id)).thenReturn(false);
+
+        productSyncDataService.deleteProduct(id);
+
+        verify(productRepository, never()).deleteById(id);
     }
 
     @Disabled

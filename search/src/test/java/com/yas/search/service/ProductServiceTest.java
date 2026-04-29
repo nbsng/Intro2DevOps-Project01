@@ -162,6 +162,21 @@ class ProductServiceTest {
         verify(elasticsearchOperations).search(any(NativeQuery.class), eq(Product.class));
     }
 
+    @Test
+    void testAutoCompleteProductName_whenNoProducts_returnEmptyList() {
+        SearchHits<Product> searchHits = getEmptySearchHits();
+
+        when(elasticsearchOperations.search(any(NativeQuery.class), eq(Product.class)))
+            .thenReturn(searchHits);
+
+        ProductNameListVm result = productService.autoCompleteProductName("Product");
+
+        assertNotNull(result);
+        assertTrue(result.productNames().isEmpty());
+
+        verify(elasticsearchOperations).search(any(NativeQuery.class), eq(Product.class));
+    }
+
     private static SearchHits<Product> getSearchHits() {
 
         Product product = Product.builder()
@@ -224,6 +239,61 @@ class ProductServiceTest {
             @Override
             public long getTotalHits() {
                 return 1;
+            }
+
+            @Override
+            public @NotNull TotalHitsRelation getTotalHitsRelation() {
+                return TotalHitsRelation.EQUAL_TO;
+            }
+
+            @Override
+            public Suggest getSuggest() {
+                return null;
+            }
+
+            @Override
+            public String getPointInTimeId() {
+                return "";
+            }
+
+            @Override
+            public SearchShardStatistics getSearchShardStatistics() {
+                return null;
+            }
+        };
+    }
+
+    private static SearchHits<Product> getEmptySearchHits() {
+        return new SearchHits<>() {
+
+            @Override
+            public @NotNull SearchHit<Product> getSearchHit(int index) {
+                throw new IndexOutOfBoundsException("No search hits available");
+            }
+
+            @Override
+            public AggregationsContainer<?> getAggregations() {
+                return null;
+            }
+
+            @Override
+            public float getMaxScore() {
+                return 0;
+            }
+
+            @Override
+            public Duration getExecutionDuration() {
+                return Duration.ZERO;
+            }
+
+            @Override
+            public @NotNull List<SearchHit<Product>> getSearchHits() {
+                return List.of();
+            }
+
+            @Override
+            public long getTotalHits() {
+                return 0;
             }
 
             @Override
