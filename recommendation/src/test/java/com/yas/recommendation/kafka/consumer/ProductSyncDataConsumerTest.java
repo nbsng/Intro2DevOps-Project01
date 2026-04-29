@@ -32,4 +32,14 @@ class ProductSyncDataConsumerTest {
         // Verify that the consumer properly delegated sync operation to ProductSyncService
         verify(productSyncService).sync(key, message);
     }
+
+    @Test
+    void processMessage_whenPayloadIsNull_shouldDelegateToProductSyncService() {
+        ProductMsgKey key = new ProductMsgKey();
+        MessageHeaders headers = new MessageHeaders(Map.of());
+
+        productSyncDataConsumer.processMessage(key, null, headers);
+
+        verify(productSyncService).sync(key, null);
+    }
 }

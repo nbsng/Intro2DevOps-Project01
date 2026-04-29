@@ -2,6 +2,7 @@ package com.yas.recommendation.vector.product.service;
 
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import com.yas.commonlibrary.kafka.cdc.message.Product;
 import com.yas.recommendation.vector.product.store.ProductVectorRepository;
@@ -39,6 +40,7 @@ class ProductVectorSyncServiceTest {
     void createProductVector_whenProductIsPublished_shouldAddVector() {
         productVectorSyncService.createProductVector(publishedProduct);
         verify(productVectorRepository).add(1L);
+        verifyNoMoreInteractions(productVectorRepository);
     }
 
     @Test
@@ -57,6 +59,7 @@ class ProductVectorSyncServiceTest {
     void updateProductVector_whenProductIsNotPublished_shouldDeleteVector() {
         productVectorSyncService.updateProductVector(unpublishedProduct);
         verify(productVectorRepository).delete(2L);
+        verifyNoMoreInteractions(productVectorRepository);
     }
 
     @Test

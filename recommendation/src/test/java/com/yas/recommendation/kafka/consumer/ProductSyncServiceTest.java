@@ -91,4 +91,15 @@ class ProductSyncServiceTest {
         productSyncService.sync(key, message);
         verifyNoInteractions(productVectorSyncService);
     }
+
+    @Test
+    void sync_whenAfterIsNull_shouldDoNothing() {
+        ProductCdcMessage message = new ProductCdcMessage();
+        message.setOp(Operation.UPDATE);
+        message.setAfter(null);
+
+        productSyncService.sync(key, message);
+
+        verifyNoInteractions(productVectorSyncService);
+    }
 }
