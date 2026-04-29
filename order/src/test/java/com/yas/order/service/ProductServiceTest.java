@@ -20,11 +20,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -40,6 +42,30 @@ class ProductServiceTest {
     private RestClient.ResponseSpec responseSpec;
 
     private static final String PRODUCT_URL = "http://api.yas.local/product";
+
+	private static final class TestProductService extends ProductService {
+		private final Object fallbackValue;
+
+		private TestProductService(RestClient restClient, ServiceUrlConfig serviceUrlConfig, Object fallbackValue) {
+			super(restClient, serviceUrlConfig);
+			this.fallbackValue = fallbackValue;
+		}
+
+		@Override
+		protected <T> T handleTypedFallback(Throwable throwable) {
+			@SuppressWarnings("unchecked")
+			T value = (T) fallbackValue;
+			return value;
+		}
+
+		List<ProductVariationVm> callHandleProductVariationListFallback(Throwable throwable) throws Throwable {
+			return handleProductVariationListFallback(throwable);
+		}
+
+		Map<Long, ProductCheckoutListVm> callHandleProductInfomationFallback(Throwable throwable) throws Throwable {
+			return handleProductInfomationFallback(throwable);
+		}
+	}
 
     @BeforeEach
     void setUp() {
@@ -64,7 +90,8 @@ class ProductServiceTest {
 	RestClient.RequestHeadersUriSpec requestHeadersUriSpec = Mockito.mock(RestClient.RequestHeadersUriSpec.class);
 	when(restClient.get()).thenReturn(requestHeadersUriSpec);
 	when(requestHeadersUriSpec.uri(url)).thenReturn(requestHeadersUriSpec);
-	when(requestHeadersUriSpec.headers(any())).thenReturn(requestHeadersUriSpec);
+	ArgumentCaptor<Consumer<HttpHeaders>> headersCaptor = ArgumentCaptor.forClass(Consumer.class);
+	when(requestHeadersUriSpec.headers(headersCaptor.capture())).thenReturn(requestHeadersUriSpec);
 	when(requestHeadersUriSpec.retrieve()).thenReturn(responseSpec);
 
 	List<ProductVariationVm> variations = List.of(new ProductVariationVm(1L, "Variation A", "SKU-1"));
@@ -72,6 +99,10 @@ class ProductServiceTest {
 		.thenReturn(ResponseEntity.ok(variations));
 
 	List<ProductVariationVm> result = productService.getProductVariations(productId);
+
+	HttpHeaders headers = new HttpHeaders();
+	headersCaptor.getValue().accept(headers);
+	assertThat(headers.getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer token");
 
 	assertThat(result).hasSize(1);
 	assertThat(result.getFirst().id()).isEqualTo(1L);
@@ -90,13 +121,18 @@ class ProductServiceTest {
 	RestClient.RequestBodyUriSpec requestBodyUriSpec = mock(RestClient.RequestBodyUriSpec.class);
 	when(restClient.put()).thenReturn(requestBodyUriSpec);
 	when(requestBodyUriSpec.uri(url)).thenReturn(requestBodyUriSpec);
-	when(requestBodyUriSpec.headers(any())).thenReturn(requestBodyUriSpec);
+	ArgumentCaptor<Consumer<HttpHeaders>> headersCaptor = ArgumentCaptor.forClass(Consumer.class);
+	when(requestBodyUriSpec.headers(headersCaptor.capture())).thenReturn(requestBodyUriSpec);
 
 	ArgumentCaptor<Object> bodyCaptor = ArgumentCaptor.forClass(Object.class);
 	when(requestBodyUriSpec.body(bodyCaptor.capture())).thenReturn(requestBodyUriSpec);
 	when(requestBodyUriSpec.retrieve()).thenReturn(responseSpec);
 
 	productService.subtractProductStockQuantity(orderVm);
+
+	HttpHeaders headers = new HttpHeaders();
+	headersCaptor.getValue().accept(headers);
+	assertThat(headers.getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer token");
 
 	Object capturedBody = bodyCaptor.getValue();
 	assertThat(capturedBody).isInstanceOf(List.class);
@@ -126,7 +162,8 @@ class ProductServiceTest {
 	RestClient.RequestHeadersUriSpec requestHeadersUriSpec = Mockito.mock(RestClient.RequestHeadersUriSpec.class);
 	when(restClient.get()).thenReturn(requestHeadersUriSpec);
 	when(requestHeadersUriSpec.uri(url)).thenReturn(requestHeadersUriSpec);
-	when(requestHeadersUriSpec.headers(any())).thenReturn(requestHeadersUriSpec);
+	ArgumentCaptor<Consumer<HttpHeaders>> headersCaptor = ArgumentCaptor.forClass(Consumer.class);
+	when(requestHeadersUriSpec.headers(headersCaptor.capture())).thenReturn(requestHeadersUriSpec);
 	when(requestHeadersUriSpec.retrieve()).thenReturn(responseSpec);
 
 	List<ProductCheckoutListVm> list = List.of(
@@ -138,6 +175,10 @@ class ProductServiceTest {
 		.thenReturn(ResponseEntity.ok(response));
 
 	Map<Long, ProductCheckoutListVm> result = productService.getProductInfomation(ids, pageNo, pageSize);
+
+	HttpHeaders headers = new HttpHeaders();
+	headersCaptor.getValue().accept(headers);
+	assertThat(headers.getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer token");
 
 	assertThat(result).hasSize(2);
 	assertThat(result.get(1L)).isNotNull();
@@ -198,6 +239,49 @@ class ProductServiceTest {
 
 	assertThrows(NotFoundException.class,
 		() -> productService.getProductInfomation(ids, pageNo, pageSize));
+    }
+
+    @Test
+    void testHandleProductVariationListFallback_rethrowsThrowable() {
+	RuntimeException error = new RuntimeException("boom");
+
+	Throwable thrown = assertThrows(RuntimeException.class,
+		() -> productService.handleProductVariationListFallback(error));
+
+	assertThat(thrown).isSameAs(error);
+    }
+
+    @Test
+    void testHandleProductInfomationFallback_rethrowsThrowable() {
+	RuntimeException error = new RuntimeException("boom");
+
+	Throwable thrown = assertThrows(RuntimeException.class,
+		() -> productService.handleProductInfomationFallback(error));
+
+	assertThat(thrown).isSameAs(error);
+    }
+
+    @Test
+    void testHandleProductVariationListFallback_returnsOverrideValue() throws Throwable {
+	List<ProductVariationVm> fallback = List.of(new ProductVariationVm(9L, "Fallback", "FB-1"));
+	TestProductService testService = new TestProductService(restClient, serviceUrlConfig, fallback);
+
+	List<ProductVariationVm> result = testService.callHandleProductVariationListFallback(new RuntimeException("x"));
+
+	assertThat(result).isSameAs(fallback);
+    }
+
+    @Test
+    void testHandleProductInfomationFallback_returnsOverrideValue() throws Throwable {
+	Map<Long, ProductCheckoutListVm> fallback = Map.of(
+		1L,
+		ProductCheckoutListVm.builder().id(1L).name("Fallback").price(1.0).taxClassId(1L).build()
+	);
+	TestProductService testService = new TestProductService(restClient, serviceUrlConfig, fallback);
+
+	Map<Long, ProductCheckoutListVm> result = testService.callHandleProductInfomationFallback(new RuntimeException("x"));
+
+	assertThat(result).isSameAs(fallback);
     }
 
     private static OrderVm createOrderVm() {
