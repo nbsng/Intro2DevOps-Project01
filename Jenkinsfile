@@ -1,3 +1,6 @@
+// Khai báo biến toàn cục để lưu danh sách các thư mục có sự thay đổi
+def changedFolders = []
+
 pipeline {
     agent any
 
@@ -14,10 +17,68 @@ pipeline {
     }
 
     stages {
+        // ==========================================
+        // 0. SYSTEM: TỰ ĐỘNG PHÁT HIỆN SỰ THAY ĐỔI
+        // ==========================================
+        stage('System: Detect Changes') {
+            steps {
+                script {
+                    echo "[INFO] Đang phân tích sự thay đổi của mã nguồn (Native Git Diff)..."
+                    def baseRef = ""
+                    
+                    if (env.CHANGE_ID) {
+                        baseRef = "origin/${env.CHANGE_TARGET}"
+                        echo "[INFO] Phát hiện Pull Request. Đang so sánh HEAD với ${baseRef}..."
 
-        // ==========================================
-        // 0. GITLEAKS - QUÉT LỘ MẬT KHẨU/TOKEN TOÀN DỰ ÁN
-        // ==========================================
+                        // [FIX] Ép Jenkins fetch đích danh nhánh target của PR về local
+                        sh "git fetch origin ${env.CHANGE_TARGET}:refs/remotes/origin/${env.CHANGE_TARGET} --no-tags || true"
+                    } else if (currentBuild.previousBuild == null) {
+                        echo "[INFO] Nhánh mới được tạo (First Build). Đang dò tìm nhánh mẹ gần nhất..."
+                        
+                        baseRef = sh(script: '''#!/bin/bash
+                            # 1. Tắt cơ chế tự sập Pipeline khi có lỗi shell
+                            set +e
+                            
+                            # 2. Tải TẤT CẢ các nhánh từ remote về local để thuật toán có data đối chiếu
+                            # Ép tải vào refs/remotes/origin/* và giấu log đi để không làm hỏng kết quả trả về
+                            git fetch origin '+refs/heads/*:refs/remotes/origin/*' --no-tags > /dev/null 2>&1
+                            
+                            # 3. Thuật toán dò tìm nhánh mẹ
+                            CURRENT_BRANCH=${BRANCH_NAME}
+                            git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v "origin/${CURRENT_BRANCH}" | while read branch; do
+                                mb=$(git merge-base HEAD "$branch" 2>/dev/null)
+                                if [ -n "$mb" ]; then
+                                    dist=$(git rev-list --count "$mb"..HEAD 2>/dev/null)
+                                    echo "$dist $mb $branch"
+                                fi
+                            done | sort -n | head -n 1 | awk '{print $2}'
+                        ''', returnStdout: true).trim()
+                        
+                        if (!baseRef) { 
+                            baseRef = "HEAD~1" 
+                        }
+                        echo "[INFO] Đã tìm thấy điểm rẽ nhánh gốc: ${baseRef}..."
+                    } else {
+                        baseRef = env.GIT_PREVIOUS_COMMIT ?: "HEAD~1"
+                        echo "[INFO] Push cập nhật nhánh. So sánh HEAD với commit build trước đó (${baseRef})..."
+                    }
+
+                    sh "git fetch origin || true"
+                    def diffOutput = sh(script: "git diff --name-only ${baseRef}...HEAD || true", returnStdout: true).trim()
+
+                    if (diffOutput) {
+                        def files = diffOutput.split('\n')
+                        for (int i = 0; i < files.length; i++) {
+                            def pathParts = files[i].split('/')
+                            if (pathParts.length > 0) { changedFolders.add(pathParts[0]) }
+                        }
+                    }
+                    changedFolders = changedFolders.unique()
+                    echo "=> CÁC DỊCH VỤ CÓ SỰ THAY ĐỔI LÀ: ${changedFolders}"
+                }
+            }
+        }
+
         stage('Security: Gitleaks Scan') {
             steps {
                 echo "[INFO] Đang quét mã nguồn để tìm mật khẩu, token bị lộ (Gitleaks)..."
@@ -27,945 +88,210 @@ pipeline {
         }
 
         // ==========================================
-        // 1. BACKOFFICE (Node.js)
+        // CÁC SERVICES NODE.JS
         // ==========================================
         stage('CI: Backoffice') {
-            when { changeset "backoffice/**" }
+            when { expression { return changedFolders.contains('backoffice') } }
             stages {
-                stage('Build') {
-                    steps {
-                        dir('backoffice') {
-                            echo "[INFO] Đang cài đặt thư viện và build Backoffice..."
-                            sh 'npm ci'
-                            sh 'npm run build'
-                        }
-                    }
-                }
-                stage('Format Check') {
-                    steps {
-                        dir('backoffice') {
-                            echo "[INFO] Đang kiểm tra Format..."
-                            sh 'npm run lint'
-                            sh 'npx prettier --check .'
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        dir('backoffice') {
-                            echo "[INFO] Quét SonarQube..."
-                            withSonarQubeEnv('Sonar-Server') {
-                                sh 'sonar-scanner -Dsonar.projectKey=backoffice -Dsonar.sources=.'
-                            }
-                            echo "[INFO] Quét Snyk..."
-                            withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                                sh 'snyk test --all-projects --json-file-output=snyk-backoffice-report.json || true'
-                            }
-                            archiveArtifacts artifacts: 'snyk-backoffice-report.json', allowEmptyArchive: true
-                        }
-                    }
-                }
+                stage('Build') { steps { buildNodeService('backoffice') } }
+                stage('Format Check') { steps { formatNodeService('backoffice') } }
+                stage('Security & Quality') { steps { scanNodeService('backoffice') } }
+            }
+        }
+
+        stage('CI: Storefront') {
+            when { expression { return changedFolders.contains('storefront') } }
+            stages {
+                stage('Build') { steps { buildNodeService('storefront') } }
+                stage('Format Check') { steps { formatNodeService('storefront') } }
+                stage('Security & Quality') { steps { scanNodeService('storefront') } }
             }
         }
 
         // ==========================================
-        // 2. BACKOFFICE-BFF (Maven)
+        // CÁC SERVICES MAVEN BFF (Verify)
         // ==========================================
         stage('CI: Backoffice-bff') {
-            when { changeset "backoffice-bff/**" }
+            when { expression { return changedFolders.contains('backoffice-bff') } }
             stages {
-                stage('Verify & Checkstyle') {
-                    steps {
-                        echo "[INFO] Đang chạy Verify và Checkstyle cho Backoffice-bff..."
-                        sh 'mvn clean verify checkstyle:checkstyle -DskipTests -pl backoffice-bff -am'
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl backoffice-bff -am -Dsonar.projectKey=backoffice-bff'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-backoffice-bff-report.json --target-dir=backoffice-bff || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-backoffice-bff-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Verify & Checkstyle') { steps { verifyMavenBff('backoffice-bff') } }
+                stage('Security & Quality') { steps { scanMavenService('backoffice-bff') } }
+            }
+        }
+
+        stage('CI: Storefront-bff') {
+            when { expression { return changedFolders.contains('storefront-bff') } }
+            stages {
+                stage('Verify & Checkstyle') { steps { verifyMavenBff('storefront-bff') } }
+                stage('Security & Quality') { steps { scanMavenService('storefront-bff') } }
             }
         }
 
         // ==========================================
-        // 3. CART (Maven Core)
+        // CÁC SERVICES MAVEN CORE (Install & Test)
         // ==========================================
         stage('CI: Cart') {
-            when { changeset "cart/**" }
+            when { expression { return changedFolders.contains('cart') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl cart -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl cart -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'cart/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'cart/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl cart -am -Dsonar.projectKey=cart'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-cart-report.json --target-dir=cart || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-cart-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('cart') } }
+                stage('Test') { steps { testMavenCore('cart') } }
+                stage('Security') { steps { scanMavenService('cart') } }
             }
         }
 
-        // ==========================================
-        // 4. CUSTOMER (Maven Core)
-        // ==========================================
         stage('CI: Customer') {
-            when { changeset "customer/**" }
+            when { expression { return changedFolders.contains('customer') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl customer -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl customer -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'customer/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'customer/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl customer -am -Dsonar.projectKey=customer'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-customer-report.json --target-dir=customer || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-customer-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('customer') } }
+                stage('Test') { steps { testMavenCore('customer') } }
+                stage('Security') { steps { scanMavenService('customer') } }
             }
         }
 
-        // ==========================================
-        // 5. INVENTORY (Maven Core)
-        // ==========================================
         stage('CI: Inventory') {
-            when { changeset "inventory/**" }
+            when { expression { return changedFolders.contains('inventory') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl inventory -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl inventory -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'inventory/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'inventory/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl inventory -am -Dsonar.projectKey=inventory'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-inventory-report.json --target-dir=inventory || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-inventory-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('inventory') } }
+                stage('Test') { steps { testMavenCore('inventory') } }
+                stage('Security') { steps { scanMavenService('inventory') } }
             }
         }
 
-        // ==========================================
-        // 6. LOCATION (Maven Core)
-        // ==========================================
         stage('CI: Location') {
-            when { changeset "location/**" }
+            when { expression { return changedFolders.contains('location') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl location -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl location -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'location/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'location/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl location -am -Dsonar.projectKey=location'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-location-report.json --target-dir=location || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-location-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('location') } }
+                stage('Test') { steps { testMavenCore('location') } }
+                stage('Security') { steps { scanMavenService('location') } }
             }
         }
 
-        // ==========================================
-        // 7. MEDIA (Maven Core)
-        // ==========================================
         stage('CI: Media') {
-            when { changeset "media/**" }
+            when { expression { return changedFolders.contains('media') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl media -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl media -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'media/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'media/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl media -am -Dsonar.projectKey=media'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-media-report.json --target-dir=media || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-media-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('media') } }
+                stage('Test') { steps { testMavenCore('media') } }
+                stage('Security') { steps { scanMavenService('media') } }
             }
         }
 
-        // ==========================================
-        // 8. ORDER (Maven Core)
-        // ==========================================
         stage('CI: Order') {
-            when { changeset "order/**" }
+            when { expression { return changedFolders.contains('order') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl order -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl order -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'order/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'order/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl order -am -Dsonar.projectKey=order'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-order-report.json --target-dir=order || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-order-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('order') } }
+                stage('Test') { steps { testMavenCore('order') } }
+                stage('Security') { steps { scanMavenService('order') } }
             }
         }
 
-        // ==========================================
-        // 9. PAYMENT (Maven Core)
-        // ==========================================
         stage('CI: Payment') {
-            when { changeset "payment/**" }
+            when { expression { return changedFolders.contains('payment') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl payment -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl payment -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'payment/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'payment/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl payment -am -Dsonar.projectKey=payment'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-payment-report.json --target-dir=payment || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-payment-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('payment') } }
+                stage('Test') { steps { testMavenCore('payment') } }
+                stage('Security') { steps { scanMavenService('payment') } }
             }
         }
 
-        // ==========================================
-        // 10. PAYMENT-PAYPAL (Maven Core)
-        // ==========================================
         stage('CI: Payment Paypal') {
-            when { changeset "payment-paypal/**" }
+            when { expression { return changedFolders.contains('payment-paypal') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl payment-paypal -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl payment-paypal -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'payment-paypal/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'payment-paypal/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl payment-paypal -am -Dsonar.projectKey=payment-paypal'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-payment-paypal-report.json --target-dir=payment-paypal || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-payment-paypal-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('payment-paypal') } }
+                stage('Test') { steps { testMavenCore('payment-paypal') } }
+                stage('Security') { steps { scanMavenService('payment-paypal') } }
             }
         }
 
-        // ==========================================
-        // 11. PRODUCT (Maven Core)
-        // ==========================================
         stage('CI: Product') {
-            when { changeset "product/**" }
+            when { expression { return changedFolders.contains('product') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl product -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl product -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'product/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'product/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl product -am -Dsonar.projectKey=product'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-product-report.json --target-dir=product || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-product-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('product') } }
+                stage('Test') { steps { testMavenCore('product') } }
+                stage('Security') { steps { scanMavenService('product') } }
             }
         }
 
-        // ==========================================
-        // 12. PROMOTION (Maven Core)
-        // ==========================================
         stage('CI: Promotion') {
-            when { changeset "promotion/**" }
+            when { expression { return changedFolders.contains('promotion') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl promotion -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl promotion -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'promotion/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'promotion/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl promotion -am -Dsonar.projectKey=promotion'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-promotion-report.json --target-dir=promotion || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-promotion-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('promotion') } }
+                stage('Test') { steps { testMavenCore('promotion') } }
+                stage('Security') { steps { scanMavenService('promotion') } }
             }
         }
 
-        // ==========================================
-        // 13. RATING (Maven Core)
-        // ==========================================
         stage('CI: Rating') {
-            when { changeset "rating/**" }
+            when { expression { return changedFolders.contains('rating') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl rating -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl rating -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'rating/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'rating/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl rating -am -Dsonar.projectKey=rating'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-rating-report.json --target-dir=rating || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-rating-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('rating') } }
+                stage('Test') { steps { testMavenCore('rating') } }
+                stage('Security') { steps { scanMavenService('rating') } }
             }
         }
 
-        // ==========================================
-        // 14. RECOMMENDATION (Maven Core)
-        // ==========================================
         stage('CI: Recommendation') {
-            when { changeset "recommendation/**" }
+            when { expression { return changedFolders.contains('recommendation') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl recommendation -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl recommendation -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'recommendation/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'recommendation/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl recommendation -am -Dsonar.projectKey=recommendation'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-recommendation-report.json --target-dir=recommendation || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-recommendation-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('recommendation') } }
+                stage('Test') { steps { testMavenCore('recommendation') } }
+                stage('Security') { steps { scanMavenService('recommendation') } }
             }
         }
 
-        // ==========================================
-        // 15. SAMPLE DATA (Maven Core)
-        // ==========================================
         stage('CI: Sample data') {
-            when { changeset "sampledata/**" }
+            when { expression { return changedFolders.contains('sampledata') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl sampledata -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl sampledata -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'sampledata/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'sampledata/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl sampledata -am -Dsonar.projectKey=sampledata'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-sampledata-report.json --target-dir=sampledata || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-sampledata-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('sampledata') } }
+                stage('Test') { steps { testMavenCore('sampledata') } }
+                stage('Security') { steps { scanMavenService('sampledata') } }
             }
         }
 
-        // ==========================================
-        // 16. SEARCH (Maven Core)
-        // ==========================================
         stage('CI: Search') {
-            when { changeset "search/**" }
+            when { expression { return changedFolders.contains('search') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl search -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl search -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'search/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'search/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl search -am -Dsonar.projectKey=search'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-search-report.json --target-dir=search || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-search-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('search') } }
+                stage('Test') { steps { testMavenCore('search') } }
+                stage('Security') { steps { scanMavenService('search') } }
             }
         }
 
-        // ==========================================
-        // 17. STOREFRONT-BFF (Maven)
-        // ==========================================
-        stage('CI: Storefront-bff') {
-            when { changeset "storefront-bff/**" }
-            stages {
-                stage('Verify & Checkstyle') {
-                    steps {
-                        echo "[INFO] Đang chạy Verify và Checkstyle cho Storefront-bff..."
-                        sh 'mvn clean verify checkstyle:checkstyle -DskipTests -pl storefront-bff -am'
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl storefront-bff -am -Dsonar.projectKey=storefront-bff'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-storefront-bff-report.json --target-dir=storefront-bff || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-storefront-bff-report.json', allowEmptyArchive: true
-                    }
-                }
-            }
-        }
-
-        // ==========================================
-        // 18. STOREFRONT (Node.js)
-        // ==========================================
-        stage('CI: Storefront') {
-            when { changeset "storefront/**" }
-            stages {
-                stage('Build') {
-                    steps {
-                        dir('storefront') {
-                            echo "[INFO] Đang cài đặt thư viện và build Storefront..."
-                            sh 'npm ci'
-                            sh 'npm run build'
-                        }
-                    }
-                }
-                stage('Format Check') {
-                    steps {
-                        dir('storefront') {
-                            echo "[INFO] Đang kiểm tra Format..."
-                            sh 'npm run lint'
-                            sh 'npx prettier --check .'
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        dir('storefront') {
-                            echo "[INFO] Quét SonarQube..."
-                            withSonarQubeEnv('Sonar-Server') {
-                                sh 'sonar-scanner -Dsonar.projectKey=storefront -Dsonar.sources=.'
-                            }
-                            echo "[INFO] Quét Snyk..."
-                            withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                                sh 'snyk test --all-projects --json-file-output=snyk-storefront-report.json || true'
-                            }
-                            archiveArtifacts artifacts: 'snyk-storefront-report.json', allowEmptyArchive: true
-                        }
-                    }
-                }
-            }
-        }
-
-        // ==========================================
-        // 19. TAX (Maven Core)
-        // ==========================================
         stage('CI: Tax') {
-            when { changeset "tax/**" }
+            when { expression { return changedFolders.contains('tax') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl tax -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl tax -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'tax/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'tax/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl tax -am -Dsonar.projectKey=tax'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-tax-report.json --target-dir=tax || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-tax-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('tax') } }
+                stage('Test') { steps { testMavenCore('tax') } }
+                stage('Security') { steps { scanMavenService('tax') } }
             }
         }
 
-        // ==========================================
-        // 20. WEBHOOK (Maven Core)
-        // ==========================================
         stage('CI: Webhook') {
-            when { changeset "webhook/**" }
+            when { expression { return changedFolders.contains('webhook') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl webhook -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl webhook -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'webhook/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'webhook/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl webhook -am -Dsonar.projectKey=webhook'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-webhook-report.json --target-dir=webhook || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-webhook-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('webhook') } }
+                stage('Test') { steps { testMavenCore('webhook') } }
+                stage('Security') { steps { scanMavenService('webhook') } }
             }
         }
 
-        // ==========================================
-        // 21. COMMON-LIBRARY (Maven Core)
-        // ==========================================
         stage('CI: Common-library') {
-            when { changeset "common-library/**" }
+            when { expression { return changedFolders.contains('common-library') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl common-library -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        sh 'mvn test jacoco:report -pl common-library -am'
-                    }
-                    post {
-                        always {
-                            junit testResults: 'common-library/target/surefire-reports/*.xml', allowEmptyResults: true
-                            recordCoverage(
-                                tools: [[parser: 'JACOCO', pattern: 'common-library/target/site/jacoco/jacoco.xml']],
-                                qualityGates: [
-                                    [threshold: 70.0, metric: 'LINE', unstable: false],
-                                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                ]
-                            )
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl common-library -am -Dsonar.projectKey=common-library'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-common-library-report.json --target-dir=common-library || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-common-library-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('common-library') } }
+                stage('Test') { steps { testMavenCore('common-library') } }
+                stage('Security') { steps { scanMavenService('common-library') } }
             }
         }
 
         // ==========================================
-        // 22. DELIVERY (Maven Core)
+        // SERVICE ĐẶC BIỆT: DELIVERY (Kiểm tra điều kiện Test)
         // ==========================================
         stage('CI: Delivery') {
-            when { changeset "delivery/**" }
+            when { expression { return changedFolders.contains('delivery') } }
             stages {
-                stage('Build') {
-                    steps {
-                        sh 'mvn clean install -DskipTests -pl delivery -am'
-                    }
-                }
-                stage('Test & Coverage') {
-                    steps {
-                        script {
-                            if (fileExists('delivery/src/test')) {
-                                echo "[INFO] Phát hiện thư mục test trong Delivery, đang chạy Test..."
-                                sh 'mvn test jacoco:report -pl delivery -am'
-                            } else {
-                                echo "[INFO] Không tìm thấy thư mục test trong Delivery, bỏ qua."
-                            }
-                        }
-                    }
-                    post {
-                        always {
-                            script {
-                                if (fileExists('delivery/target/site/jacoco/jacoco.xml')) {
-                                    junit testResults: 'delivery/target/surefire-reports/*.xml', allowEmptyResults: true
-                                    recordCoverage(
-                                        tools: [[parser: 'JACOCO', pattern: 'delivery/target/site/jacoco/jacoco.xml']],
-                                        qualityGates: [
-                                            [threshold: 70.0, metric: 'LINE', unstable: false],
-                                            [threshold: 70.0, metric: 'BRANCH', unstable: false]
-                                        ]
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                stage('Security & Quality (Sonar, Snyk)') {
-                    steps {
-                        echo "[INFO] Quét SonarQube..."
-                        withSonarQubeEnv('Sonar-Server') {
-                            sh 'mvn sonar:sonar -pl delivery -am -Dsonar.projectKey=delivery'
-                        }
-                        echo "[INFO] Quét Snyk..."
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            sh 'snyk test --all-projects --json-file-output=snyk-delivery-report.json --target-dir=delivery || true'
-                        }
-                        archiveArtifacts artifacts: 'snyk-delivery-report.json', allowEmptyArchive: true
-                    }
-                }
+                stage('Build') { steps { buildMavenCore('delivery') } }
+                stage('Test') { steps { testMavenDelivery('delivery') } }
+                stage('Security') { steps { scanMavenService('delivery') } }
             }
         }
     }
@@ -974,14 +300,108 @@ pipeline {
     // DỌN DẸP & THÔNG BÁO SAU KHI CHẠY
     // ==========================================
     post {
-        always {
-            cleanWs()
+        always { cleanWs() }
+        success { echo "✅ Pipeline hoàn thành thành công!" }
+        failure { echo "❌ Pipeline thất bại!" }
+    }
+}
+
+// =========================================================================================
+// ============================= CÁC HÀM HỖ TRỢ (HELPER METHODS) =============================
+// Việc định nghĩa hàm ở đây giúp Jenkins không bị quá tải bộ nhớ khi parse file Declarative
+// =========================================================================================
+
+// --- Helpers cho Node.js ---
+def buildNodeService(String svc) {
+    dir(svc) {
+        echo "[INFO] Đang cài đặt thư viện và build ${svc}..."
+        sh 'npm ci'
+        sh 'npm run build'
+    }
+}
+
+def formatNodeService(String svc) {
+    dir(svc) {
+        echo "[INFO] Đang kiểm tra Format..."
+        sh 'npm run lint'
+        sh 'npx prettier --check .'
+    }
+}
+
+def scanNodeService(String svc) {
+    dir(svc) {
+        echo "[INFO] Quét SonarQube..."
+        withSonarQubeEnv('Sonar-Server') {
+            sh "sonar-scanner -Dsonar.projectKey=${svc} -Dsonar.sources=."
         }
-        success {
-            echo "✅ Pipeline hoàn thành thành công!"
+        echo "[INFO] Quét Snyk..."
+        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
+            sh "snyk test --all-projects --json-file-output=snyk-${svc}-report.json || true"
         }
-        failure {
-            echo "❌ Pipeline thất bại!"
+        archiveArtifacts artifacts: "snyk-${svc}-report.json", allowEmptyArchive: true
+    }
+}
+
+// --- Helpers cho Maven BFF ---
+def verifyMavenBff(String svc) {
+    echo "[INFO] Đang chạy Verify và Checkstyle cho ${svc}..."
+    sh "mvn clean verify checkstyle:checkstyle -DskipTests -pl ${svc} -am"
+}
+
+// --- Helpers cho Maven Core ---
+def buildMavenCore(String svc) {
+    sh "mvn clean install -DskipTests -pl ${svc} -am"
+}
+
+def testMavenCore(String svc) {
+    try {
+        sh "mvn test jacoco:report -pl ${svc} -am"
+    } finally {
+        // Khối finally đảm bảo Report luôn được thu thập kể cả khi test fail
+        junit testResults: "${svc}/target/surefire-reports/*.xml", allowEmptyResults: true
+        if (fileExists("${svc}/target/site/jacoco/jacoco.xml")) {
+            recordCoverage(
+                tools: [[parser: 'JACOCO', pattern: "${svc}/target/site/jacoco/jacoco.xml"]],
+                qualityGates: [
+                    [threshold: 70.0, metric: 'LINE', unstable: false],
+                    [threshold: 70.0, metric: 'BRANCH', unstable: false]
+                ]
+            )
         }
+    }
+}
+
+def scanMavenService(String svc) {
+    echo "[INFO] Quét SonarQube cho ${svc}..."
+    withSonarQubeEnv('Sonar-Server') {
+        sh "mvn sonar:sonar -pl ${svc} -am -Dsonar.projectKey=${svc}"
+    }
+    echo "[INFO] Quét Snyk cho ${svc}..."
+    withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
+        sh "snyk test --all-projects --json-file-output=snyk-${svc}-report.json --target-dir=${svc} || true"
+    }
+    archiveArtifacts artifacts: "snyk-${svc}-report.json", allowEmptyArchive: true
+}
+
+// --- Helper đặc thù cho Delivery ---
+def testMavenDelivery(String svc) {
+    if (fileExists("${svc}/src/test")) {
+        echo "[INFO] Phát hiện thư mục test trong ${svc}, đang chạy Test..."
+        try {
+            sh "mvn test jacoco:report -pl ${svc} -am"
+        } finally {
+            if (fileExists("${svc}/target/site/jacoco/jacoco.xml")) {
+                junit testResults: "${svc}/target/surefire-reports/*.xml", allowEmptyResults: true
+                recordCoverage(
+                    tools: [[parser: 'JACOCO', pattern: "${svc}/target/site/jacoco/jacoco.xml"]],
+                    qualityGates: [
+                        [threshold: 70.0, metric: 'LINE', unstable: false],
+                        [threshold: 70.0, metric: 'BRANCH', unstable: false]
+                    ]
+                )
+            }
+        }
+    } else {
+        echo "[INFO] Không tìm thấy thư mục test trong ${svc}, bỏ qua."
     }
 }
