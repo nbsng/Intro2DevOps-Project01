@@ -1,15 +1,21 @@
 package com.yas.order.service;
 
 import com.yas.commonlibrary.exception.NotFoundException;
+import com.yas.commonlibrary.csv.BaseCsv;
+import com.yas.commonlibrary.csv.CsvExporter;
+import com.yas.commonlibrary.utils.AuthenticationUtils;
 import com.yas.order.model.Order;
 import com.yas.order.model.OrderItem;
+import com.yas.order.model.csv.OrderItemCsv;
 import com.yas.order.model.enumeration.DeliveryMethod;
 import com.yas.order.model.enumeration.OrderStatus;
 import com.yas.order.model.enumeration.PaymentMethod;
 import com.yas.order.model.enumeration.PaymentStatus;
 import com.yas.order.mapper.OrderMapper;
+import com.yas.order.model.request.OrderRequest;
 import com.yas.order.repository.OrderItemRepository;
 import com.yas.order.repository.OrderRepository;
+import com.yas.order.viewmodel.product.ProductVariationVm;
 import com.yas.order.viewmodel.order.*;
 import com.yas.order.viewmodel.orderaddress.OrderAddressPostVm;
 import org.junit.jupiter.api.Nested;
@@ -22,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.util.Pair;
 
@@ -164,6 +171,25 @@ class OrderServiceTest {
                 assertThat(result.totalElements()).isEqualTo(1);
             }
         }
+
+        @Test
+        void whenOrdersEmpty_returnsNullListAndZeroTotals() {
+            Page<Order> page = new PageImpl<>(List.of());
+            when(orderRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+
+            OrderListVm result = orderService.getAllOrder(
+                Pair.of(ZonedDateTime.now(), ZonedDateTime.now()),
+                "Phone",
+                List.of(OrderStatus.PENDING),
+                Pair.of("VN", "0123"),
+                "user@test.com",
+                Pair.of(0, 10)
+            );
+
+            assertThat(result.orderList()).isNull();
+            assertThat(result.totalElements()).isZero();
+            assertThat(result.totalPages()).isZero();
+        }
     }
 
     @Nested
@@ -188,6 +214,39 @@ class OrderServiceTest {
             verify(order).setOrderStatus(OrderStatus.PAID);
             verify(orderRepository).save(order);
         }
+
+        @Test
+        void whenPaymentNotCompleted_doesNotChangeOrderStatus() {
+            Order order = mock(Order.class);
+            when(orderRepository.findById(2L)).thenReturn(Optional.of(order));
+            when(orderRepository.save(order)).thenReturn(order);
+            when(order.getId()).thenReturn(2L);
+            when(order.getOrderStatus()).thenReturn(OrderStatus.ACCEPTED);
+
+            PaymentOrderStatusVm vm = PaymentOrderStatusVm.builder()
+                .orderId(2L)
+                .paymentId(101L)
+                .paymentStatus(PaymentStatus.PENDING.name())
+                .build();
+
+            orderService.updateOrderPaymentStatus(vm);
+
+            verify(order, never()).setOrderStatus(OrderStatus.PAID);
+            verify(orderRepository).save(order);
+        }
+
+        @Test
+        void whenOrderNotFound_throwsNotFoundException() {
+            when(orderRepository.findById(99L)).thenReturn(Optional.empty());
+
+            PaymentOrderStatusVm vm = PaymentOrderStatusVm.builder()
+                .orderId(99L)
+                .paymentId(101L)
+                .paymentStatus(PaymentStatus.PENDING.name())
+                .build();
+
+            assertThrows(NotFoundException.class, () -> orderService.updateOrderPaymentStatus(vm));
+        }
     }
 
     @Nested
@@ -203,6 +262,232 @@ class OrderServiceTest {
             verify(order).setOrderStatus(OrderStatus.REJECT);
             verify(order).setRejectReason("Out of stock");
             verify(orderRepository).save(order);
+        }
+
+        @Test
+        void whenOrderNotFound_throwsNotFoundException() {
+            when(orderRepository.findById(404L)).thenReturn(Optional.empty());
+
+            assertThrows(NotFoundException.class, () -> orderService.rejectOrder(404L, "Out of stock"));
+        }
+    }
+
+    @Nested
+    class AcceptOrder {
+
+        @Test
+        void whenOrderNotFound_throwsNotFoundException() {
+            when(orderRepository.findById(405L)).thenReturn(Optional.empty());
+
+            assertThrows(NotFoundException.class, () -> orderService.acceptOrder(405L));
+        }
+    }
+
+    @Nested
+    class GetLatestOrders {
+
+        @Test
+        void whenCountIsZero_returnsEmptyAndSkipsRepository() {
+            List<OrderBriefVm> result = orderService.getLatestOrders(0);
+
+            assertThat(result).isEmpty();
+            verify(orderRepository, never()).getLatestOrders(any(Pageable.class));
+        }
+
+        @Test
+        void whenRepositoryReturnsEmpty_returnsEmptyList() {
+            when(orderRepository.getLatestOrders(any(Pageable.class))).thenReturn(List.of());
+
+            List<OrderBriefVm> result = orderService.getLatestOrders(5);
+
+            assertThat(result).isEmpty();
+            verify(orderRepository).getLatestOrders(argThat(pageable ->
+                pageable.getPageNumber() == 0 && pageable.getPageSize() == 5));
+        }
+
+        @Test
+        void whenOrdersExist_mapsToBriefVmList() {
+            Order order = mock(Order.class);
+            OrderBriefVm briefVm = mock(OrderBriefVm.class);
+            when(orderRepository.getLatestOrders(any(Pageable.class))).thenReturn(List.of(order));
+
+            try (MockedStatic<OrderBriefVm> briefStatic = mockStatic(OrderBriefVm.class)) {
+                briefStatic.when(() -> OrderBriefVm.fromModel(order)).thenReturn(briefVm);
+
+                List<OrderBriefVm> result = orderService.getLatestOrders(3);
+
+                assertThat(result).containsExactly(briefVm);
+                verify(orderRepository).getLatestOrders(argThat(pageable ->
+                    pageable.getPageNumber() == 0 && pageable.getPageSize() == 3));
+            }
+        }
+    }
+
+    @Nested
+    class IsOrderCompletedWithUserIdAndProductId {
+
+        @Test
+        void whenNoVariations_andOrderExists_returnsPresentTrue() {
+            when(productService.getProductVariations(1L)).thenReturn(List.of());
+            when(orderRepository.findOne(any(Specification.class))).thenReturn(Optional.of(mock(Order.class)));
+
+            try (MockedStatic<AuthenticationUtils> authStatic = mockStatic(AuthenticationUtils.class)) {
+                authStatic.when(AuthenticationUtils::extractUserId).thenReturn("user-1");
+
+                OrderExistsByProductAndUserGetVm result = orderService.isOrderCompletedWithUserIdAndProductId(1L);
+
+                assertThat(result.isPresent()).isTrue();
+                verify(productService).getProductVariations(1L);
+                verify(orderRepository).findOne(any(Specification.class));
+            }
+        }
+
+        @Test
+        void whenVariationsExist_andNoOrder_returnsPresentFalse() {
+            when(productService.getProductVariations(2L))
+                .thenReturn(List.of(new ProductVariationVm(21L, "v1", "SKU-1")));
+            when(orderRepository.findOne(any(Specification.class))).thenReturn(Optional.empty());
+
+            try (MockedStatic<AuthenticationUtils> authStatic = mockStatic(AuthenticationUtils.class)) {
+                authStatic.when(AuthenticationUtils::extractUserId).thenReturn("user-2");
+
+                OrderExistsByProductAndUserGetVm result = orderService.isOrderCompletedWithUserIdAndProductId(2L);
+
+                assertThat(result.isPresent()).isFalse();
+                verify(productService).getProductVariations(2L);
+                verify(orderRepository).findOne(any(Specification.class));
+            }
+        }
+    }
+
+    @Nested
+    class GetMyOrders {
+
+        @Test
+        void whenOrdersExist_returnsMappedOrderGetVms() {
+            Order order = mock(Order.class);
+            OrderGetVm orderGetVm = mock(OrderGetVm.class);
+            when(orderRepository.findAll(any(Specification.class), any(Sort.class)))
+                .thenReturn(List.of(order));
+
+            try (MockedStatic<AuthenticationUtils> authStatic = mockStatic(AuthenticationUtils.class);
+                 MockedStatic<OrderGetVm> orderGetVmStatic = mockStatic(OrderGetVm.class)) {
+                authStatic.when(AuthenticationUtils::extractUserId).thenReturn("user-3");
+                orderGetVmStatic.when(() -> OrderGetVm.fromModel(order, null)).thenReturn(orderGetVm);
+
+                List<OrderGetVm> result = orderService.getMyOrders("Laptop", OrderStatus.COMPLETED);
+
+                assertThat(result).containsExactly(orderGetVm);
+                verify(orderRepository).findAll(any(Specification.class), any(Sort.class));
+            }
+        }
+    }
+
+    @Nested
+    class FindOrderVmByCheckoutId {
+
+        @Test
+        void whenCheckoutIdExists_returnsOrderGetVm() {
+            Order order = mock(Order.class);
+            when(order.getId()).thenReturn(10L);
+            when(orderRepository.findByCheckoutId("chk-123")).thenReturn(Optional.of(order));
+            when(orderItemRepository.findAllByOrderId(10L)).thenReturn(List.of(mock(OrderItem.class)));
+
+            OrderGetVm expected = mock(OrderGetVm.class);
+            try (MockedStatic<OrderGetVm> orderGetVmStatic = mockStatic(OrderGetVm.class)) {
+                orderGetVmStatic.when(() -> OrderGetVm.fromModel(eq(order), any(Set.class)))
+                    .thenReturn(expected);
+
+                OrderGetVm result = orderService.findOrderVmByCheckoutId("chk-123");
+
+                assertThat(result).isEqualTo(expected);
+                verify(orderRepository).findByCheckoutId("chk-123");
+                verify(orderItemRepository).findAllByOrderId(10L);
+            }
+        }
+
+        @Test
+        void whenCheckoutIdNotFound_throwsNotFoundException() {
+            when(orderRepository.findByCheckoutId("missing")).thenReturn(Optional.empty());
+
+            assertThrows(NotFoundException.class, () -> orderService.findOrderVmByCheckoutId("missing"));
+        }
+    }
+
+    @Nested
+    class ExportCsv {
+
+        @Test
+        void whenOrderListIsNull_exportsEmptyCsv() throws Exception {
+            OrderRequest request = OrderRequest.builder()
+                .createdFrom(ZonedDateTime.now())
+                .createdTo(ZonedDateTime.now())
+                .productName("Laptop")
+                .orderStatus(List.of(OrderStatus.PENDING))
+                .billingCountry("VN")
+                .billingPhoneNumber("0123456789")
+                .email("user@test.com")
+                .pageNo(0)
+                .pageSize(10)
+                .build();
+
+            OrderListVm orderListVm = new OrderListVm(null, 0, 0);
+            byte[] expected = new byte[] {1, 2, 3};
+
+            OrderService spyService = spy(orderService);
+            doReturn(orderListVm).when(spyService).getAllOrder(any(), any(), any(), any(), any(), any());
+
+            try (MockedStatic<CsvExporter> csvExporterStatic = mockStatic(CsvExporter.class)) {
+                csvExporterStatic
+                    .when(() -> CsvExporter.exportToCsv(eq(List.of()), eq(OrderItemCsv.class)))
+                    .thenReturn(expected);
+
+                byte[] result = spyService.exportCsv(request);
+
+                assertThat(result).isEqualTo(expected);
+                csvExporterStatic.verify(() -> CsvExporter.exportToCsv(eq(List.of()), eq(OrderItemCsv.class)));
+                verify(orderMapper, never()).toCsv(any());
+            }
+        }
+
+        @Test
+        void whenOrderListExists_mapsAndExportsCsv() throws Exception {
+            OrderRequest request = OrderRequest.builder()
+                .createdFrom(ZonedDateTime.now())
+                .createdTo(ZonedDateTime.now())
+                .productName("Laptop")
+                .orderStatus(List.of(OrderStatus.PENDING))
+                .billingCountry("VN")
+                .billingPhoneNumber("0123456789")
+                .email("user@test.com")
+                .pageNo(0)
+                .pageSize(10)
+                .build();
+
+            OrderBriefVm briefVm = mock(OrderBriefVm.class);
+            OrderItemCsv csvRow = mock(OrderItemCsv.class);
+            when(orderMapper.toCsv(briefVm)).thenReturn(csvRow);
+
+            OrderListVm orderListVm = new OrderListVm(List.of(briefVm), 1, 1);
+            byte[] expected = new byte[] {9, 8, 7};
+
+            OrderService spyService = spy(orderService);
+            doReturn(orderListVm).when(spyService).getAllOrder(any(), any(), any(), any(), any(), any());
+
+            try (MockedStatic<CsvExporter> csvExporterStatic = mockStatic(CsvExporter.class)) {
+                csvExporterStatic
+                    .when(() -> CsvExporter.exportToCsv(anyList(), eq(OrderItemCsv.class)))
+                    .thenReturn(expected);
+
+                byte[] result = spyService.exportCsv(request);
+
+                assertThat(result).isEqualTo(expected);
+                verify(orderMapper).toCsv(briefVm);
+                csvExporterStatic.verify(() -> CsvExporter.exportToCsv(
+                    argThat(list -> list.size() == 1 && list.get(0) == csvRow),
+                    eq(OrderItemCsv.class)
+                ));
+            }
         }
     }
 }

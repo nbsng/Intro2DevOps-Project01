@@ -15,11 +15,13 @@ import com.yas.commonlibrary.exception.NotFoundException;
 import com.yas.order.mapper.CheckoutMapperImpl;
 import com.yas.order.model.Checkout;
 import com.yas.order.model.CheckoutItem;
+import com.yas.order.model.Order;
 import com.yas.order.model.enumeration.CheckoutState;
 import com.yas.order.repository.CheckoutItemRepository;
 import com.yas.order.repository.CheckoutRepository;
 import com.yas.order.viewmodel.checkout.CheckoutPaymentMethodPutVm;
 import com.yas.order.viewmodel.checkout.CheckoutPostVm;
+import com.yas.order.viewmodel.checkout.CheckoutStatusPutVm;
 import com.yas.order.viewmodel.product.ProductCheckoutListVm;
 import com.yas.order.viewmodel.product.ProductGetCheckoutListVm;
 import java.util.List;
@@ -242,4 +244,50 @@ class CheckoutServiceTest {
         verify(checkoutRepository).save(checkout);
         assertThat(checkout.getPaymentMethodId()).isNull();
     }
+
+        @Test
+        void testUpdateCheckoutStatus_whenNormalCase_returnOrderId() {
+                Checkout checkout = new Checkout();
+                checkout.setId(checkoutId);
+                checkout.setCreatedBy(checkoutCreated.getCreatedBy());
+
+                CheckoutStatusPutVm request = new CheckoutStatusPutVm(checkoutId, CheckoutState.COMPLETED.name());
+                Order order = new Order();
+                order.setId(100L);
+
+                when(checkoutRepository.findById(checkoutId)).thenReturn(Optional.of(checkout));
+                when(checkoutRepository.save(checkout)).thenReturn(checkout);
+                when(orderService.findOrderByCheckoutId(checkoutId)).thenReturn(order);
+
+                Long result = checkoutService.updateCheckoutStatus(request);
+
+                assertThat(result).isEqualTo(100L);
+                assertThat(checkout.getCheckoutState()).isEqualTo(CheckoutState.COMPLETED);
+                verify(checkoutRepository).save(checkout);
+                verify(orderService).findOrderByCheckoutId(checkoutId);
+        }
+
+        @Test
+        void testUpdateCheckoutStatus_whenCheckoutNotFound_throwNotFoundException() {
+                CheckoutStatusPutVm request = new CheckoutStatusPutVm("missing", CheckoutState.COMPLETED.name());
+
+                when(checkoutRepository.findById("missing")).thenReturn(Optional.empty());
+
+                assertThrows(NotFoundException.class, () -> checkoutService.updateCheckoutStatus(request));
+        }
+
+        @Test
+        void testUpdateCheckoutStatus_whenNotOwner_throwForbiddenException() {
+                Checkout checkout = new Checkout();
+                checkout.setId(checkoutId);
+                checkout.setCreatedBy("owner-1");
+
+                setSubjectUpSecurityContext("owner-2");
+
+                CheckoutStatusPutVm request = new CheckoutStatusPutVm(checkoutId, CheckoutState.COMPLETED.name());
+
+                when(checkoutRepository.findById(checkoutId)).thenReturn(Optional.of(checkout));
+
+                assertThrows(ForbiddenException.class, () -> checkoutService.updateCheckoutStatus(request));
+        }
 }

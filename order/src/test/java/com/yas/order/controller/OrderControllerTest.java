@@ -1,5 +1,6 @@
 package com.yas.order.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -13,12 +14,14 @@ import org.springframework.boot.security.oauth2.server.resource.autoconfigure.se
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.ObjectWriter;
+import com.yas.commonlibrary.csv.CsvExporter;
 import com.yas.order.model.enumeration.DeliveryMethod;
 import com.yas.order.model.enumeration.DeliveryStatus;
 import com.yas.order.model.enumeration.OrderStatus;
 import com.yas.order.model.enumeration.PaymentMethod;
 import com.yas.order.model.enumeration.PaymentStatus;
 import com.yas.order.model.request.OrderRequest;
+import com.yas.order.model.csv.OrderItemCsv;
 import com.yas.order.service.OrderService;
 import com.yas.order.viewmodel.order.OrderBriefVm;
 import com.yas.order.viewmodel.order.OrderExistsByProductAndUserGetVm;
@@ -33,7 +36,6 @@ import com.yas.order.viewmodel.orderaddress.OrderAddressPostVm;
 import com.yas.order.viewmodel.orderaddress.OrderAddressVm;
 import java.math.BigDecimal;
 import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -41,6 +43,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -61,6 +65,9 @@ class OrderControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private OrderController orderController;
 
     private ObjectWriter objectWriter;
 
@@ -181,7 +188,6 @@ class OrderControllerTest {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("Date parameter conversion requires full Spring Boot context")
     void testGetOrders_whenRequestIsValid_thenReturnOrderListVm() throws Exception {
 
         OrderListVm orderListVm = new OrderListVm(
@@ -198,13 +204,23 @@ class OrderControllerTest {
             any()
         )).thenReturn(orderListVm);
 
-        mockMvc.perform(get("/backoffice/orders")
-                .param("createdFrom", "1970-01-01T00:00:00Z")
-                .param("createdTo", ZonedDateTime.now().toString())
-                .accept(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(MockMvcResultMatchers.content()
-                .json(objectWriter.writeValueAsString(orderListVm)));
+        ZonedDateTime createdFrom = ZonedDateTime.parse("2024-01-01T00:00:00Z");
+        ZonedDateTime createdTo = ZonedDateTime.parse("2024-12-31T00:00:00Z");
+
+        var response = orderController.getOrders(
+            createdFrom,
+            createdTo,
+            "Laptop",
+            List.of(OrderStatus.COMPLETED),
+            "0123456789",
+            "user@test.com",
+            "VN",
+            0,
+            10
+        );
+
+        assertThat(response.getStatusCode().value()).isEqualTo(200);
+        assertThat(response.getBody()).isEqualTo(orderListVm);
     }
 
     @Test
@@ -221,7 +237,6 @@ class OrderControllerTest {
     }
 
     @Test
-    @org.junit.jupiter.api.Disabled("Flaky assertion based on current time")
     void testExportCsv_whenRequestIsValid_thenReturnCsvFile() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         // Note: JavaTimeModule registration removed - not used for this test
@@ -230,15 +245,41 @@ class OrderControllerTest {
 
         when(orderService.exportCsv(any(OrderRequest.class))).thenReturn(csvBytes);
 
-        mockMvc.perform(post("/backoffice/orders/csv")
-                .contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(orderRequest)))
+        try (MockedStatic<CsvExporter> csvExporter = Mockito.mockStatic(CsvExporter.class)) {
+            csvExporter.when(() -> CsvExporter.createFileName(OrderItemCsv.class))
+                .thenReturn("Orders_01-01-2024_00-00-00.csv");
+
+            mockMvc.perform(post("/backoffice/orders/csv")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .content(mapper.writeValueAsString(orderRequest)))
+                .andExpect(status().isOk())
+                .andExpect(MockMvcResultMatchers.header().string(HttpHeaders.CONTENT_DISPOSITION,
+                    "attachment; filename=Orders_01-01-2024_00-00-00.csv"))
+                .andExpect(MockMvcResultMatchers.content().bytes(csvBytes));
+        }
+    }
+
+    @Test
+    void testGetOrderWithCheckoutId_whenRequestIsValid_thenReturnOrderGetVm() throws Exception {
+        String checkoutId = "checkout-123";
+        OrderGetVm order = new OrderGetVm(
+            1L,
+            OrderStatus.COMPLETED,
+            new BigDecimal("100.00"),
+            DeliveryStatus.DELIVERED,
+            DeliveryMethod.GRAB_EXPRESS,
+            List.of(),
+            null
+        );
+
+        when(orderService.findOrderVmByCheckoutId(checkoutId)).thenReturn(order);
+
+        mockMvc.perform(get("/storefront/orders/checkout/{id}", checkoutId)
+                .accept(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
-            .andExpect(MockMvcResultMatchers.header().string(HttpHeaders.CONTENT_DISPOSITION,
-                "attachment; filename=Orders_" +
-                    ZonedDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy_HH-mm-ss")) + ".csv"))
-            .andExpect(MockMvcResultMatchers.content().bytes(csvBytes));
+            .andExpect(MockMvcResultMatchers.content()
+                .json(objectWriter.writeValueAsString(order)));
     }
 
     private OrderVm getOrderVm() {
