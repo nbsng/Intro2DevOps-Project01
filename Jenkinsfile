@@ -96,6 +96,7 @@ pipeline {
                 stage('Build') { steps { buildNodeService('backoffice') } }
                 stage('Format Check') { steps { formatNodeService('backoffice') } }
                 stage('Security & Quality') { steps { scanNodeService('backoffice') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('backoffice') } }
             }
         }
 
@@ -105,6 +106,7 @@ pipeline {
                 stage('Build') { steps { buildNodeService('storefront') } }
                 stage('Format Check') { steps { formatNodeService('storefront') } }
                 stage('Security & Quality') { steps { scanNodeService('storefront') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('storefront') } }
             }
         }
 
@@ -116,6 +118,7 @@ pipeline {
             stages {
                 stage('Verify & Checkstyle') { steps { verifyMavenBff('backoffice-bff') } }
                 stage('Security & Quality') { steps { scanMavenService('backoffice-bff') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('backoffice-bff') } }
             }
         }
 
@@ -124,6 +127,7 @@ pipeline {
             stages {
                 stage('Verify & Checkstyle') { steps { verifyMavenBff('storefront-bff') } }
                 stage('Security & Quality') { steps { scanMavenService('storefront-bff') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('storefront-bff') } }
             }
         }
 
@@ -136,6 +140,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('cart') } }
                 stage('Test') { steps { testMavenCore('cart') } }
                 stage('Security') { steps { scanMavenService('cart') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('cart') } }
             }
         }
 
@@ -145,6 +150,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('customer') } }
                 stage('Test') { steps { testMavenCore('customer') } }
                 stage('Security') { steps { scanMavenService('customer') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('customer') } }
             }
         }
 
@@ -154,6 +160,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('inventory') } }
                 stage('Test') { steps { testMavenCore('inventory') } }
                 stage('Security') { steps { scanMavenService('inventory') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('inventory') } }
             }
         }
 
@@ -163,6 +170,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('location') } }
                 stage('Test') { steps { testMavenCore('location') } }
                 stage('Security') { steps { scanMavenService('location') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('location') } }
             }
         }
 
@@ -172,6 +180,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('media') } }
                 stage('Test') { steps { testMavenCore('media') } }
                 stage('Security') { steps { scanMavenService('media') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('media') } }
             }
         }
 
@@ -181,6 +190,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('order') } }
                 stage('Test') { steps { testMavenCore('order') } }
                 stage('Security') { steps { scanMavenService('order') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('order') } }
             }
         }
 
@@ -190,6 +200,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('payment') } }
                 stage('Test') { steps { testMavenCore('payment') } }
                 stage('Security') { steps { scanMavenService('payment') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('payment') } }
             }
         }
 
@@ -199,6 +210,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('payment-paypal') } }
                 stage('Test') { steps { testMavenCore('payment-paypal') } }
                 stage('Security') { steps { scanMavenService('payment-paypal') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('payment-paypal') } }
             }
         }
 
@@ -208,6 +220,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('product') } }
                 stage('Test') { steps { testMavenCore('product') } }
                 stage('Security') { steps { scanMavenService('product') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('product') } }
             }
         }
 
@@ -217,6 +230,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('promotion') } }
                 stage('Test') { steps { testMavenCore('promotion') } }
                 stage('Security') { steps { scanMavenService('promotion') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('promotion') } }
             }
         }
 
@@ -226,6 +240,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('rating') } }
                 stage('Test') { steps { testMavenCore('rating') } }
                 stage('Security') { steps { scanMavenService('rating') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('rating') } }
             }
         }
 
@@ -235,6 +250,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('recommendation') } }
                 stage('Test') { steps { testMavenCore('recommendation') } }
                 stage('Security') { steps { scanMavenService('recommendation') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('recommendation') } }
             }
         }
 
@@ -244,6 +260,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('sampledata') } }
                 stage('Test') { steps { testMavenCore('sampledata') } }
                 stage('Security') { steps { scanMavenService('sampledata') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('sampledata') } }
             }
         }
 
@@ -253,6 +270,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('search') } }
                 stage('Test') { steps { testMavenCore('search') } }
                 stage('Security') { steps { scanMavenService('search') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('search') } }
             }
         }
 
@@ -262,6 +280,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('tax') } }
                 stage('Test') { steps { testMavenCore('tax') } }
                 stage('Security') { steps { scanMavenService('tax') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('tax') } }
             }
         }
 
@@ -271,6 +290,8 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('webhook') } }
                 stage('Test') { steps { testMavenCore('webhook') } }
                 stage('Security') { steps { scanMavenService('webhook') } }
+                // [ĐÃ SỬA] Bổ sung Docker Build & Push cho Webhook service đúng kiến trúc deploy
+                stage('Docker Build & Push') { steps { buildAndPushDocker('webhook') } }
             }
         }
 
@@ -308,7 +329,6 @@ pipeline {
 
 // =========================================================================================
 // ============================= CÁC HÀM HỖ TRỢ (HELPER METHODS) =============================
-// Việc định nghĩa hàm ở đây giúp Jenkins không bị quá tải bộ nhớ khi parse file Declarative
 // =========================================================================================
 
 // --- Helpers cho Node.js ---
@@ -357,7 +377,6 @@ def testMavenCore(String svc) {
     try {
         sh "mvn test jacoco:report -pl ${svc} -am"
     } finally {
-        // Khối finally đảm bảo Report luôn được thu thập kể cả khi test fail
         junit testResults: "${svc}/target/surefire-reports/*.xml", allowEmptyResults: true
         if (fileExists("${svc}/target/site/jacoco/jacoco.xml")) {
             recordCoverage(
@@ -403,5 +422,28 @@ def testMavenDelivery(String svc) {
         }
     } else {
         echo "[INFO] Không tìm thấy thư mục test trong ${svc}, bỏ qua."
+    }
+}
+
+// --- Helper Docker Build & Push ---
+def buildAndPushDocker(String svc) {
+    script {
+        def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+        def imageTag = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
+        
+        def dockerUser = 'sybew' 
+        def imageName = "${dockerUser}/${svc}:${imageTag}"
+        
+        echo "[INFO] Đang build Docker Image: ${imageName}"
+        dir(svc) {
+            sh "docker build -t ${imageName} ."
+        }
+        
+        echo "[INFO] Đang push lên Docker Hub..."
+        withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+            sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+            sh "docker push ${imageName}"
+            sh "docker rmi ${imageName} || true"
+        }
     }
 }
