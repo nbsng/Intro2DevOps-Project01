@@ -155,7 +155,7 @@ pipeline {
         }
 
         stage('CI: Inventory') {
-            when { expression { return changedFolders.contains('inventory') } }
+            when { changeset "inventory/**" }
             stages {
                 stage('Build') { steps { buildMavenCore('inventory') } }
                 stage('Test') { steps { testMavenCore('inventory') } }
