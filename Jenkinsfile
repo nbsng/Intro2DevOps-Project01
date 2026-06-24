@@ -435,8 +435,14 @@ def buildAndPushDocker(String svc) {
         def imageName = "${dockerUser}/${svc}:${imageTag}"
         
         echo "[INFO] Đang build Docker Image: ${imageName}"
-        dir(svc) {
-            sh "docker build -t ${imageName} ."
+        if (svc == 'media') {
+            echo "[INFO] Kích hoạt chế độ Root Build Context cho ${svc}..."
+            sh "docker build -t ${imageName} -f ${svc}/Dockerfile ."
+        } 
+        else {
+            dir(svc) {
+                sh "docker build -t ${imageName} ."
+            }
         }
         
         echo "[INFO] Đang push lên Docker Hub..."

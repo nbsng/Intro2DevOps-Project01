@@ -1,10 +1,34 @@
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: kafka-node-pool
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: kafka-cluster
+spec:
+  replicas: 1
+  roles:
+    - broker
+    - controller  # <-- 1. THÊM VAI TRÒ NÀY ĐỂ KRAFT HOẠT ĐỘNG
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 100Gi
+        deleteClaim: false
+---
+apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
   name: kafka-cluster
+  namespace: kafka
+  annotations:
+    strimzi.io/node-pools: "enabled" # <-- 2. GỌI NODE POOL
+    strimzi.io/kraft: "enabled"      # <-- 3. BẬT CHẾ ĐỘ KRAFT
 spec:
   kafka:
-    replicas: {{ .Values.kafka.replicas }}
+    version: 4.1.0
     listeners:
       - name: plain
         port: 9092
@@ -20,25 +44,12 @@ spec:
         port: 9094
         type: nodeport
         tls: false
-    storage:
-      type: jbod
-      volumes:
-        - id: 0
-          type: persistent-claim
-          size: 100Gi
-          deleteClaim: false
     config:
       offsets.topic.replication.factor: 1
       transaction.state.log.replication.factor: 1
       transaction.state.log.min.isr: 1
       default.replication.factor: 1
       min.insync.replicas: 1
-  zookeeper:
-    replicas: {{ .Values.zookeeper.replicas }}
-    storage:
-      type: persistent-claim
-      size: {{ .Values.zookeeper.storeSize }}
-      deleteClaim: false
   entityOperator:
     topicOperator: {}
     userOperator: {}
