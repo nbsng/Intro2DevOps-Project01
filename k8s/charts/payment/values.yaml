@@ -1,7 +1,7 @@
 backend:
   image:
-    repository: ghcr.io/nashtech-garage/yas-payment
-    tag: latest
+    repository: sybew/payment
+    tag: main
 
   nameOverride: payment
   fullnameOverride: payment

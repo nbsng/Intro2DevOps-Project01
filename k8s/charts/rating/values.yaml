@@ -1,7 +1,7 @@
 backend:
   image:
-    repository: ghcr.io/nashtech-garage/yas-rating
-    tag: latest
+    repository: sybew/rating
+    tag: main
 
   nameOverride: rating
   fullnameOverride: rating

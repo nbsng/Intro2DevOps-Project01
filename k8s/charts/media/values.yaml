@@ -1,13 +1,17 @@
 backend:
   image:
-    repository: ghcr.io/nashtech-garage/yas-media
-    tag: latest
+    repository: sybew/media
+    tag: main
 
   nameOverride: media
   fullnameOverride: media
   databaseName: media
   ingress:
-    enabled: false
+    enabled: true
+    className: nginx
+    host: api.yas.local.com
+    path: /media
+    pathType: Prefix
   extraVolumes:
     - name: media-application
       configMap:
