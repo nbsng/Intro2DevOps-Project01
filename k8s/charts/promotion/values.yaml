@@ -2,6 +2,7 @@ backend:
   image:
     repository: sybew/promotion
     tag: main
+    pullPolicy: Always
 
   nameOverride: promotion
   fullnameOverride: promotion

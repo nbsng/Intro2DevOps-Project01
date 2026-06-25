@@ -2,6 +2,7 @@ backend:
   image:
     repository: sybew/rating
     tag: main
+    pullPolicy: Always
 
   nameOverride: rating
   fullnameOverride: rating

@@ -2,6 +2,7 @@ ui:
   image:
     repository: sybew/storefront
     tag: main
+    pullPolicy: Always
   nameOverride: storefront-ui
   fullnameOverride: storefront-ui
 #  extraVolumes:
