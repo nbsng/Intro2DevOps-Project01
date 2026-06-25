@@ -7,5 +7,6 @@ helm repo update
 
 helm dependency build ../charts/yas-configuration
 helm upgrade --install yas-configuration ../charts/yas-configuration \
---namespace yas --create-namespace
+--namespace yas --create-namespace \
+--set global.domain="yas.local.com"
 

@@ -2,6 +2,7 @@ ui:
   image:
     repository: sybew/backoffice
     tag: main
+    pullPolicy: Always
   nameOverride: backoffice-ui
   fullnameOverride: backoffice-ui
   ingress:
