@@ -2,6 +2,7 @@ backend:
   image:
     repository: sybew/backoffice-bff
     tag: main
+    pullPolicy: Always
 
   nameOverride: backoffice-bff
   fullnameOverride: backoffice-bff
