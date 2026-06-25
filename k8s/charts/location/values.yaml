@@ -1,7 +1,8 @@
 backend:
   image:
-    repository: ghcr.io/nashtech-garage/yas-location
-    tag: latest
+    repository: sybew/location
+    tag: main
+    pullPolicy: Always
 
   nameOverride: location
   fullnameOverride: location

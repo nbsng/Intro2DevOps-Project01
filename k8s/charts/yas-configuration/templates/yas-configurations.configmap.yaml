@@ -7,7 +7,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   application.yaml: |
-    {{- toYaml .Values.applicationConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.applicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
   logback.xml: |
     {{- .Values.logbackConfig | nindent 4 }}
 ---
@@ -20,7 +22,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   gateway-routes-config.yaml: |
-    {{- toYaml .Values.gatewayRoutesConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.gatewayRoutesConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 #Configmap for backoffice-bff extra
 apiVersion: v1
@@ -31,7 +35,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   backoffice-bff-extra-config.yaml: |
-    {{- toYaml .Values.backofficeBffExtraConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.backofficeBffExtraConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 #Configmap for storefront-bff extra
 apiVersion: v1
@@ -42,7 +48,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   storefront-bff-extra-config.yaml: |
-    {{- toYaml .Values.storefrontBffExtraConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.storefrontBffExtraConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 # Configmap for media application config custom
 apiVersion: v1
@@ -53,7 +61,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   media-application.yaml: |
-    {{- toYaml .Values.mediaApplicationConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.mediaApplicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 #Configmap for customer application config custom
 apiVersion: v1
@@ -64,7 +74,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   customer-application.yaml: |
-    {{ toYaml .Values.customerApplicationConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.customerApplicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 # Configmap of search application config custom
 apiVersion: v1
@@ -75,7 +87,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   search-application.yaml: |
-    {{ toYaml .Values.searchApplicationConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.searchApplicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 # Configmap of cart application config custom
 apiVersion: v1
@@ -86,7 +100,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   cart-application.yaml: |
-    {{ toYaml .Values.cartApplicationConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.cartApplicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 # Configmap of order application config custom
 apiVersion: v1
@@ -97,7 +113,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   order-application.yaml: |
-    {{ toYaml .Values.orderApplicationConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.orderApplicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 # Configmap of payment application config custom
 apiVersion: v1
@@ -108,7 +126,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   payment-application.yaml: |
-    {{ toYaml .Values.paymentApplicationConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.paymentApplicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 # Configmap of payment-paypal application config custom
 apiVersion: v1
@@ -119,7 +139,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   payment-paypal-application.yaml: |
-    {{ toYaml .Values.paymentPaypalApplicationConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.paymentPaypalApplicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 # Configmap of production application config custom
 apiVersion: v1
@@ -130,8 +152,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   product-application.yaml: |
-    {{ toYaml .Values.productApplicationConfig | nindent 4 }}
-
+    {{- $configStr := toYaml .Values.productApplicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 # Configmap of recommendation application config custom
 apiVersion: v1
@@ -142,8 +165,9 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   recommendation-application.yaml: |
-    {{ toYaml .Values.recommendationApplicationConfig | nindent 4 }}
-
+    {{- $configStr := toYaml .Values.recommendationApplicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
 ---
 # Configmap of sampledata application config custom
 apiVersion: v1
@@ -154,4 +178,6 @@ metadata:
     reloader.stakater.com/match: "true"
 data:
   sampledata-application.yaml: |
-    {{ toYaml .Values.sampledataApplicationConfig | nindent 4 }}
+    {{- $configStr := toYaml .Values.sampledataApplicationConfig -}}
+    {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
