@@ -24,8 +24,9 @@ spec:
     hostname: http://{{ .Values.hostname }}
     backchannelDynamic: true
     strict: false
-  proxy:
-    headers: xforwarded
+  additionalOptions:
+    - name: proxy
+      value: edge
   ingress:
     enabled: true
     className: nginx
