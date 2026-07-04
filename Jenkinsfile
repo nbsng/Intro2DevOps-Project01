@@ -317,22 +317,93 @@ pipeline {
         }
 
         // ==========================================
-        // CD: ĐỒNG BỘ HELM CHARTS SANG REPO MANIFEST (ARGOCD)
-        // Chạy độc lập, không phụ thuộc changedFolders của service
-        // Kích hoạt khi: có thay đổi trong k8s/ HOẶC đang trên nhánh argocd-setup
+        // CD: STAGING — BUILD TẤT CẢ SERVICES KHI CÓ GIT TAG v1.2.3
+        // Vì khi push Git Tag, changedFolders = [] → không có CI stage nào chạy
+        // Cần stage riêng để build Docker image cho TẤT CẢ services với tag release
         // ==========================================
-        stage('CD: Sync ArgoCD Manifests') {
+        stage('CD: Release Staging — Build All Services') {
             when {
                 expression {
-                    return changedFolders.contains('k8s') ||
-                           env.BRANCH_NAME == 'main' ||
-                           (env.BRANCH_NAME != null && env.BRANCH_NAME.startsWith('feat/argocd')) ||
-                           (env.TAG_NAME != null && env.TAG_NAME.matches(/v\d+\.\d+\.\d+/))
+                    return env.TAG_NAME != null && env.TAG_NAME.matches(/v\d+\.\d+\.\d+/)
                 }
             }
             steps {
                 script {
-                    syncAllManifests()
+                    echo "[INFO] 🚀 Git Tag Release ${env.TAG_NAME} — Building ALL services for staging..."
+                    def allDockerServices = [
+                        'backoffice', 'storefront',
+                        'backoffice-bff', 'storefront-bff',
+                        'cart', 'customer', 'inventory', 'location',
+                        'media', 'order', 'payment', 'payment-paypal',
+                        'product', 'promotion', 'rating', 'recommendation',
+                        'sampledata', 'search', 'tax', 'webhook'
+                    ]
+                    withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                        sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                        for (int i = 0; i < allDockerServices.size(); i++) {
+                            def svc = allDockerServices[i]
+                            def imageName = "sybew/${svc}:${env.TAG_NAME}"
+                            if (fileExists("${svc}/Dockerfile")) {
+                                echo "[INFO] Building ${imageName}..."
+                                sh "docker build -t ${imageName} ./${svc}"
+                                sh "docker push ${imageName}"
+                                sh "docker rmi ${imageName} || true"
+                            } else {
+                                echo "[WARN] Không tìm thấy Dockerfile cho ${svc}, bỏ qua."
+                            }
+                        }
+                    }
+                    // Sau khi build xong toàn bộ, update deployment repo staging
+                    syncAllManifests(allDockerServices, 'staging', env.TAG_NAME)
+                }
+            }
+        }
+
+        // ==========================================
+        // CD: DEV — Sync manifest cho các services thay đổi trên main
+        // Chỉ update services đã được build trong lần chạy này
+        // ==========================================
+        stage('CD: Sync Dev Manifests') {
+            when {
+                expression {
+                    // Chỉ chạy trên main hoặc feat/argocd (setup), KHÔNG chạy khi có Git Tag (đã có stage riêng)
+                    return (env.TAG_NAME == null || !env.TAG_NAME.matches(/v\d+\.\d+\.\d+/)) &&
+                           (changedFolders.contains('k8s') ||
+                            env.BRANCH_NAME == 'main' ||
+                            (env.BRANCH_NAME != null && env.BRANCH_NAME.startsWith('feat/argocd')))
+                }
+            }
+            steps {
+                script {
+                    def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    def imageTag    = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
+                    // Chỉ sync những service chart đã được build Docker image lần này
+                    // (dựa theo changedFolders — map tên service folder -> chart name)
+                    def svcToChartMap = [
+                        'backoffice': 'backoffice-ui', 'storefront': 'storefront-ui',
+                        'backoffice-bff': 'backoffice-bff', 'storefront-bff': 'storefront-bff',
+                        'cart': 'cart', 'customer': 'customer', 'inventory': 'inventory',
+                        'location': 'location', 'media': 'media', 'order': 'order',
+                        'payment': 'payment', 'payment-paypal': 'payment-paypal',
+                        'product': 'product', 'promotion': 'promotion', 'rating': 'rating',
+                        'recommendation': 'recommendation', 'sampledata': 'sampledata',
+                        'search': 'search', 'tax': 'tax', 'webhook': 'webhook'
+                    ]
+                    def changedCharts = []
+                    changedFolders.each { svc ->
+                        if (svcToChartMap.containsKey(svc)) {
+                            changedCharts.add(svcToChartMap[svc])
+                        }
+                    }
+                    // Nếu có thay đổi trong k8s/ hoặc đang setup argocd → sync toàn bộ
+                    if (changedFolders.contains('k8s') || changedFolders.isEmpty()) {
+                        changedCharts = CHART_VALUE_KEYS.keySet().toList()
+                    }
+                    if (!changedCharts.isEmpty()) {
+                        syncAllManifests(changedCharts, 'dev', imageTag)
+                    } else {
+                        echo "[INFO] Không có service Docker nào thay đổi, bỏ qua sync manifest."
+                    }
                 }
             }
         }
@@ -446,162 +517,116 @@ def testMavenDelivery(String svc) {
     }
 }
 
-// --- Helper Docker Build & Push ---
+// --- Helper Docker Build & Push (chỉ build + push image, KHÔNG update manifest) ---
+// Manifest được update tập trung bởi syncAllManifests() ở stage CD
 def buildAndPushDocker(String svc) {
     script {
         def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+        // Khi gọi từ CI stage (changedFolders), luôn là luồng dev
+        // Luồng staging (TAG_NAME) sẽ không đi qua đây vì CI stages bị skip khi tag push
+        def imageTag  = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
+        def imageName = "sybew/${svc}:${imageTag}"
 
-        // 1. Xác định Tag Image và môi trường dựa vào nhánh hoặc Git Tag
-        def imageTag = ""
-        def targetEnv = ""
-        def isRelease = false
+        echo "[INFO] Building Docker image: ${imageName}"
+        sh "docker build -t ${imageName} ./${svc}"
 
-        if (env.TAG_NAME && env.TAG_NAME.matches(/v\d+\.\d+\.\d+/)) {
-            // Nếu Jenkins được kích hoạt bởi một Git Tag hệ thống (v1.2.3)
-            imageTag = env.TAG_NAME
-            targetEnv = "staging"
-            isRelease = true
-        } else {
-            // Mặc định cho nhánh dev/main
-            imageTag = (env.BRANCH_NAME == 'main') ? "main" : shortCommit
-            targetEnv = "dev"
-        }
-
-        def dockerUser = 'sybew'
-        def imageName = "${dockerUser}/${svc}:${imageTag}"
-
-        // ... [Giữ nguyên phần build và push Docker hiện tại của bạn] ...
-        echo "[INFO] Đang push lên Docker Hub..."
+        echo "[INFO] Pushing to Docker Hub: ${imageName}"
         withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
-            sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+            sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
             sh "docker push ${imageName}"
             sh "docker rmi ${imageName} || true"
         }
-
-        // ==========================================================================
-        // SCRIPT ĐỒNG BỘ SANG REPO MANIFEST CỦA NHÓM BẰNG TOKEN CỦA BẠN (HTTPS)
-        // ==========================================================================
-        echo "[INFO] Tiến hành cập nhật cấu hình YAML sang Repo Manifest cho môi trường: ${targetEnv}"
-
-        // Jenkins tự động bốc Username (xuxinhno1) và Token (ghp_...) của bạn từ Credentials ra
-        withCredentials([usernamePassword(credentialsId: 'jenkins-github-manifest-token', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
-            script {
-                // Đường dẫn HTTPS đã cấu hình chính xác theo repo của bạn mình (nbsng)
-                def manifestRepoHttps = "https://${GIT_USER}:${GIT_TOKEN}@github.com/nbsng/Intro2DevOps-Project02Deployment.git"
-
-                // 1. Dọn dẹp không gian tạm và clone repo manifest về
-                sh 'rm -rf Intro2DevOps-Project02Deployment'
-                sh "git clone ${manifestRepoHttps} Intro2DevOps-Project02Deployment"
-
-                // 2. Tạo thư mục cấu trúc môi trường và service nếu chưa có
-                sh "mkdir -p Intro2DevOps-Project02Deployment/${targetEnv}/${svc}"
-
-                // 3. Copy toàn bộ file Helm Chart gốc từ k8s/chart/<service> sang repo manifest
-                sh "cp -r k8s/chart/${svc}/* Intro2DevOps-Project02Deployment/${targetEnv}/${svc}/"
-
-                // 4. Sửa tag image tự động trong file values.yaml của Helm
-                def valuesPath = "Intro2DevOps-Project02Deployment/${targetEnv}/${svc}/values.yaml"
-                if (sh(script: "[ -f ${valuesPath} ]", returnStatus: true) == 0) {
-                    echo "[INFO] Đang cập nhật tag: \"${imageTag}\" vào file values.yaml..."
-                    sh "sed -i 's|tag:.*|tag: \"${imageTag}\"|g' ${valuesPath}"
-                }
-
-                // 5. Commit và Push ngược trở lại repo nbsng/Intro2DevOps-Project02Deployment
-                dir('Intro2DevOps-Project02Deployment') {
-                    sh """
-                git config user.name 'Jenkins Automated CI'
-                git config user.email 'xuxinhno1@users.noreply.github.com'
-                git add .
-                git commit -m 'ArgoCD Auto-update: ${svc} to version ${imageTag} in ${targetEnv} [skip ci]'
-
-                # Ép remote sử dụng URL chứa token bảo mật để push không cần gõ pass
-                git remote set-url origin ${manifestRepoHttps}
-                git push origin main
-            """
-
-                    // Nếu chạy luồng Staging (khi có Git Tag hệ thống), thực hiện đánh tag đồng bộ
-                    if (isRelease) {
-                        echo "[INFO] Đánh Git Tag ${imageTag} đồng bộ sang Repo Manifest..."
-                        sh """
-                    git tag ${imageTag}
-                    git push origin ${imageTag}
-                """
-                    }
-                }
-            }
-        }
+        // Manifest update được xử lý tập trung tại stage 'CD: Sync Dev Manifests'
     }
 }
 
-// --- Helper: Đồng bộ toàn bộ Helm Charts sang Manifest Repo (ArgoCD) ---
-def syncAllManifests() {
+// =========================================================================================
+// === HELPER: JENKINS CHỈ UPDATE VALUES.YAML TRONG DEPLOYMENT REPO =======================
+// =========================================================================================
+// Kiến trúc GitOps đúng (ArgoCD multi-source, v2.6+):
+//
+//   Intro2DevOps-Project01 (Source Repo)       Intro2DevOps-Project02Deployment (Deploy Repo)
+//   ├── k8s/charts/cart/                        ├── dev/
+//   │   ├── Chart.yaml  ← Helm templates        │   ├── cart/
+//   │   ├── values.yaml ← default values        │   │   └── values.yaml ← CHỈ override tag
+//   │   └── templates/                          │   ├── backoffice-ui/
+//   └── ...                                     │   │   └── values.yaml
+//                                               │   └── ...
+//                                               └── staging/
+//                                                   └── ...
+//
+//   Jenkins chỉ làm một việc: update tag trong deployment repo sau khi push Docker image.
+//   ArgoCD dùng "sources" (multi-source) để kết hợp:
+//     source[0] → chart từ Source Repo (k8s/charts/<svc>/)
+//     source[1] → values từ Deploy Repo   (dev/<svc>/values.yaml)
+//
+// NOTE: Các ArgoCD Application CRDs được tạo 1 lần bằng hàm initArgoCDApplications()
+//       Sau đó Jenkins CHỈ update values.yaml — ArgoCD tự phát hiện và sync.
+// =========================================================================================
+
+// Map: chart name → top-level key trong values.yaml (để ghi đúng path)
+// ui charts dùng "ui.image.tag", backend charts dùng "backend.image.tag"
+@groovy.transform.Field
+def CHART_VALUE_KEYS = [
+    'backoffice-ui'   : 'ui',
+    'storefront-ui'   : 'ui',
+    'backoffice-bff'  : 'backend',
+    'storefront-bff'  : 'backend',
+    'cart'            : 'backend',
+    'customer'        : 'backend',
+    'inventory'       : 'backend',
+    'location'        : 'backend',
+    'media'           : 'backend',
+    'order'           : 'backend',
+    'payment'         : 'backend',
+    'payment-paypal'  : 'backend',
+    'product'         : 'backend',
+    'promotion'       : 'backend',
+    'rating'          : 'backend',
+    'recommendation'  : 'backend',
+    'sampledata'      : 'backend',
+    'search'          : 'backend',
+    'tax'             : 'backend',
+    'webhook'         : 'backend'
+]
+
+// --- Được gọi bởi các stage CD sau khi Docker image đã được push ---
+// Params:
+//   charts    : List<String> tên chart cần update (từ CHART_VALUE_KEYS)
+//   targetEnv : "dev" hoặc "staging"
+//   imageTag  : tag image đã push lên Docker Hub
+def syncAllManifests(List<String> charts, String targetEnv, String imageTag) {
     script {
         def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
 
-        // Xác định môi trường dựa trên nhánh/tag
-        def targetEnv = ""
-        def imageTag = ""
-        if (env.TAG_NAME && env.TAG_NAME.matches(/v\d+\.\d+\.\d+/)) {
-            targetEnv = "staging"
-            imageTag = env.TAG_NAME
-        } else {
-            targetEnv = "dev"
-            imageTag = (env.BRANCH_NAME == 'main') ? "main" : shortCommit
-        }
-
-        // Danh sách các chart folder thực tế trong k8s/charts/
-        def chartFolders = [
-            'backoffice-ui',
-            'storefront-ui',
-            'backoffice-bff',
-            'storefront-bff',
-            'cart',
-            'customer',
-            'inventory',
-            'location',
-            'media',
-            'order',
-            'payment',
-            'payment-paypal',
-            'product',
-            'promotion',
-            'rating',
-            'recommendation',
-            'sampledata',
-            'search',
-            'tax',
-            'webhook'
-        ]
-
         withCredentials([usernamePassword(credentialsId: 'jenkins-github-manifest-token', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
-            // [FIX] Dùng single-quote sh để tránh Groovy string interpolation với secret GIT_TOKEN
             sh 'rm -rf Intro2DevOps-Project02Deployment'
             sh 'git clone https://${GIT_USER}:${GIT_TOKEN}@github.com/nbsng/Intro2DevOps-Project02Deployment.git Intro2DevOps-Project02Deployment'
 
-            // Duyệt qua từng chart folder và copy sang manifest repo
-            for (int i = 0; i < chartFolders.size(); i++) {
-                def chart = chartFolders[i]
-                // [FIX] Đường dẫn đúng là k8s/charts/ (có chữ s)
-                def chartSrc = "k8s/charts/${chart}"
-                def chartDest = "Intro2DevOps-Project02Deployment/${targetEnv}/${chart}"
-
-                if (fileExists(chartSrc)) {
-                    echo "[INFO] Đang sync Helm chart: ${chart} -> ${targetEnv}/"
-                    sh "mkdir -p ${chartDest}"
-                    sh "cp -r ${chartSrc}/. ${chartDest}/"
-
-                    // [FIX] Pattern sed khớp với bất kỳ indent level
-                    def valuesPath = "${chartDest}/values.yaml"
-                    if (fileExists(valuesPath)) {
-                        sh "sed -i \"s|^\\(\\s*tag:\\s*\\).*|\\1${imageTag}|\" ${valuesPath}"
-                    }
-                } else {
-                    echo "[WARN] Không tìm thấy ${chartSrc}, bỏ qua."
+            // Chỉ update các chart được truyền vào (không overwrite service khác)
+            for (int i = 0; i < charts.size(); i++) {
+                def chart    = charts[i]
+                def valueKey = CHART_VALUE_KEYS[chart]
+                if (!valueKey) {
+                    echo "[WARN] Chart '${chart}' không có trong CHART_VALUE_KEYS, bỏ qua."
+                    continue
                 }
+                def valuesDir  = "Intro2DevOps-Project02Deployment/${targetEnv}/${chart}"
+                def valuesFile = "${valuesDir}/values.yaml"
+                sh "mkdir -p ${valuesDir}"
+
+                def content = """\
+# Auto-generated by Jenkins CI — DO NOT EDIT MANUALLY
+# Branch: ${env.BRANCH_NAME ?: 'N/A'} | Commit: ${shortCommit}
+${valueKey}:
+  image:
+    tag: "${imageTag}"
+"""
+                writeFile file: valuesFile, text: content
+                echo "[INFO] ✅ ${targetEnv}/${chart} → tag: ${imageTag}"
             }
 
-            // [FIX] Dùng \${GIT_USER} và \${GIT_TOKEN} (escape $) trong double-quote sh
-            def commitMsg = "ArgoCD Sync: full manifest update for ${targetEnv} at ${imageTag} [skip ci]"
+            def commitMsg = "ci(${targetEnv}): update [${charts.join(', ')}] to tag ${imageTag} [skip ci]"
             dir('Intro2DevOps-Project02Deployment') {
                 sh """
                     git config user.name 'Jenkins Automated CI'
@@ -612,6 +637,37 @@ def syncAllManifests() {
                     git push origin main
                 """
             }
+            echo "[INFO] ✅ Deployment repo updated → ArgoCD sẽ tự phát hiện và sync."
+        }
+    }
+}
+
+// --- Hàm khởi tạo 1 lần: tạo ArgoCD Application CRDs dùng multi-source ---
+// Chạy thủ công 1 lần lúc setup, KHÔNG chạy mỗi lần build
+// Yêu cầu: argocd CLI đã login vào cluster
+def initArgoCDApplications(String targetEnv = 'dev') {
+    script {
+        CHART_VALUE_KEYS.each { chart, valueKey ->
+            def appName = "${chart}-${targetEnv}"
+            sh """
+                argocd app create ${appName} \\
+                  --project default \\
+                  --dest-server https://kubernetes.default.svc \\
+                  --dest-namespace ${targetEnv} \\
+                  --sync-policy automated \\
+                  --auto-prune \\
+                  --self-heal \\
+                  --sync-option CreateNamespace=true \\
+                  --source-0-repo    https://github.com/nbsng/Intro2DevOps-Project01.git \\
+                  --source-0-revision main \\
+                  --source-0-path    k8s/charts/${chart} \\
+                  --source-0-helm-value-files values.yaml \\
+                  --source-1-repo    https://github.com/nbsng/Intro2DevOps-Project02Deployment.git \\
+                  --source-1-revision main \\
+                  --source-1-ref     valuesRepo \\
+                  --upsert || true
+                echo "[INFO] ArgoCD App created/updated: ${appName}"
+            """
         }
     }
 }
