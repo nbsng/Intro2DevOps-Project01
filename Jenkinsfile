@@ -5,7 +5,7 @@ pipeline {
     agent any
 
     tools {
-        jdk 'JDK 25' 
+        jdk 'JDK 25'
         maven 'Maven'
         nodejs 'Node 20'
         snyk 'snyk'
@@ -34,15 +34,15 @@ pipeline {
                         sh "git fetch origin ${env.CHANGE_TARGET}:refs/remotes/origin/${env.CHANGE_TARGET} --no-tags || true"
                     } else if (currentBuild.previousBuild == null) {
                         echo "[INFO] Nhánh mới được tạo (First Build). Đang dò tìm nhánh mẹ gần nhất..."
-                        
+
                         baseRef = sh(script: '''#!/bin/bash
                             # 1. Tắt cơ chế tự sập Pipeline khi có lỗi shell
                             set +e
-                            
+
                             # 2. Tải TẤT CẢ các nhánh từ remote về local để thuật toán có data đối chiếu
                             # Ép tải vào refs/remotes/origin/* và giấu log đi để không làm hỏng kết quả trả về
                             git fetch origin '+refs/heads/*:refs/remotes/origin/*' --no-tags > /dev/null 2>&1
-                            
+
                             # 3. Thuật toán dò tìm nhánh mẹ
                             CURRENT_BRANCH=${BRANCH_NAME}
                             git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v "origin/${CURRENT_BRANCH}" | while read branch; do
@@ -53,8 +53,8 @@ pipeline {
                                 fi
                             done | sort -n | head -n 1 | awk '{print $2}'
                         ''', returnStdout: true).trim()
-                        
-                        if (!baseRef) { 
+
+                        if (!baseRef) {
                             baseRef = "HEAD~1" 
                         }
                         echo "[INFO] Đã tìm thấy điểm rẽ nhánh gốc: ${baseRef}..."
@@ -429,27 +429,85 @@ def testMavenDelivery(String svc) {
 def buildAndPushDocker(String svc) {
     script {
         def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-        def imageTag = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
-        
-        def dockerUser = 'sybew' 
-        def imageName = "${dockerUser}/${svc}:${imageTag}"
-        
-        echo "[INFO] Đang build Docker Image: ${imageName}"
-        if (svc == 'media') {
-            echo "[INFO] Kích hoạt chế độ Root Build Context cho ${svc}..."
-            sh "docker build -t ${imageName} -f ${svc}/Dockerfile ."
-        } 
-        else {
-            dir(svc) {
-                sh "docker build -t ${imageName} ."
-            }
+
+        // 1. Xác định Tag Image và môi trường dựa vào nhánh hoặc Git Tag
+        def imageTag = ""
+        def targetEnv = ""
+        def isRelease = false
+
+        if (env.TAG_NAME && env.TAG_NAME.matches(/v\d+\.\d+\.\d+/)) {
+            // Nếu Jenkins được kích hoạt bởi một Git Tag hệ thống (v1.2.3)
+            imageTag = env.TAG_NAME
+            targetEnv = "staging"
+            isRelease = true
+        } else {
+            // Mặc định cho nhánh dev/main
+            imageTag = (env.BRANCH_NAME == 'main') ? "main" : shortCommit
+            targetEnv = "dev"
         }
-        
+
+        def dockerUser = 'sybew'
+        def imageName = "${dockerUser}/${svc}:${imageTag}"
+
+        // ... [Giữ nguyên phần build và push Docker hiện tại của bạn] ...
         echo "[INFO] Đang push lên Docker Hub..."
         withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
             sh "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
             sh "docker push ${imageName}"
             sh "docker rmi ${imageName} || true"
+        }
+
+        // ==========================================================================
+        // SCRIPT ĐỒNG BỘ SANG REPO MANIFEST CỦA NHÓM BẰNG TOKEN CỦA BẠN (HTTPS)
+        // ==========================================================================
+        echo "[INFO] Tiến hành cập nhật cấu hình YAML sang Repo Manifest cho môi trường: ${targetEnv}"
+
+        // Jenkins tự động bốc Username (xuxinhno1) và Token (ghp_...) của bạn từ Credentials ra
+        withCredentials([usernamePassword(credentialsId: 'jenkins-github-manifest-token', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
+            script {
+                // Đường dẫn HTTPS đã cấu hình chính xác theo repo của bạn mình (nbsng)
+                def manifestRepoHttps = "https://${GIT_USER}:${GIT_TOKEN}@github.com/nbsng/Intro2DevOps-Project02Deployment.git"
+
+                // 1. Dọn dẹp không gian tạm và clone repo manifest về
+                sh 'rm -rf Intro2DevOps-Project02Deployment'
+                sh "git clone ${manifestRepoHttps} Intro2DevOps-Project02Deployment"
+
+                // 2. Tạo thư mục cấu trúc môi trường và service nếu chưa có
+                sh "mkdir -p Intro2DevOps-Project02Deployment/${targetEnv}/${svc}"
+
+                // 3. Copy toàn bộ file Helm Chart gốc từ k8s/chart/<service> sang repo manifest
+                sh "cp -r k8s/chart/${svc}/* Intro2DevOps-Project02Deployment/${targetEnv}/${svc}/"
+
+                // 4. Sửa tag image tự động trong file values.yaml của Helm
+                def valuesPath = "Intro2DevOps-Project02Deployment/${targetEnv}/${svc}/values.yaml"
+                if (sh(script: "[ -f ${valuesPath} ]", returnStatus: true) == 0) {
+                    echo "[INFO] Đang cập nhật tag: \"${imageTag}\" vào file values.yaml..."
+                    sh "sed -i 's|tag:.*|tag: \"${imageTag}\"|g' ${valuesPath}"
+                }
+
+                // 5. Commit và Push ngược trở lại repo nbsng/Intro2DevOps-Project02Deployment
+                dir('Intro2DevOps-Project02Deployment') {
+                    sh """
+                git config user.name 'Jenkins Automated CI'
+                git config user.email 'xuxinhno1@users.noreply.github.com'
+                git add .
+                git commit -m 'ArgoCD Auto-update: ${svc} to version ${imageTag} in ${targetEnv} [skip ci]'
+
+                # Ép remote sử dụng URL chứa token bảo mật để push không cần gõ pass
+                git remote set-url origin ${manifestRepoHttps}
+                git push origin main
+            """
+
+                    // Nếu chạy luồng Staging (khi có Git Tag hệ thống), thực hiện đánh tag đồng bộ
+                    if (isRelease) {
+                        echo "[INFO] Đánh Git Tag ${imageTag} đồng bộ sang Repo Manifest..."
+                        sh """
+                    git tag ${imageTag}
+                    git push origin ${imageTag}
+                """
+                    }
+                }
+            }
         }
     }
 }
