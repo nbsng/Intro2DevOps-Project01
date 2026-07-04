@@ -333,10 +333,9 @@ pipeline {
                     def allDockerServices = [
                         'backoffice', 'storefront',
                         'backoffice-bff', 'storefront-bff',
-                        'cart', 'customer', 'inventory', 'location',
-                        'media', 'order', 'payment', 'payment-paypal',
-                        'product', 'promotion', 'rating', 'recommendation',
-                        'sampledata', 'search', 'tax', 'webhook'
+                        'cart', 'customer', 'inventory',
+                        'media', 'order',
+                        'product', 'sampledata', 'search', 'tax'
                     ]
                     withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
                         sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
@@ -383,11 +382,9 @@ pipeline {
                         'backoffice': 'backoffice-ui', 'storefront': 'storefront-ui',
                         'backoffice-bff': 'backoffice-bff', 'storefront-bff': 'storefront-bff',
                         'cart': 'cart', 'customer': 'customer', 'inventory': 'inventory',
-                        'location': 'location', 'media': 'media', 'order': 'order',
-                        'payment': 'payment', 'payment-paypal': 'payment-paypal',
-                        'product': 'product', 'promotion': 'promotion', 'rating': 'rating',
-                        'recommendation': 'recommendation', 'sampledata': 'sampledata',
-                        'search': 'search', 'tax': 'tax', 'webhook': 'webhook'
+                        'media': 'media', 'order': 'order',
+                        'product': 'product', 'sampledata': 'sampledata',
+                        'search': 'search', 'tax': 'tax'
                     ]
                     def changedCharts = []
                     changedFolders.each { svc ->
@@ -575,19 +572,12 @@ def CHART_VALUE_KEYS = [
     'cart'            : 'backend',
     'customer'        : 'backend',
     'inventory'       : 'backend',
-    'location'        : 'backend',
     'media'           : 'backend',
     'order'           : 'backend',
-    'payment'         : 'backend',
-    'payment-paypal'  : 'backend',
     'product'         : 'backend',
-    'promotion'       : 'backend',
-    'rating'          : 'backend',
-    'recommendation'  : 'backend',
     'sampledata'      : 'backend',
     'search'          : 'backend',
-    'tax'             : 'backend',
-    'webhook'         : 'backend'
+    'tax'             : 'backend'
 ]
 
 // --- Được gọi bởi các stage CD sau khi Docker image đã được push ---
