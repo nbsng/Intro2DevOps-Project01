@@ -315,6 +315,27 @@ pipeline {
                 stage('Security') { steps { scanMavenService('delivery') } }
             }
         }
+
+        // ==========================================
+        // CD: ĐỒNG BỘ HELM CHARTS SANG REPO MANIFEST (ARGOCD)
+        // Chạy độc lập, không phụ thuộc changedFolders của service
+        // Kích hoạt khi: có thay đổi trong k8s/ HOẶC đang trên nhánh argocd-setup
+        // ==========================================
+        stage('CD: Sync ArgoCD Manifests') {
+            when {
+                expression {
+                    return changedFolders.contains('k8s') ||
+                           env.BRANCH_NAME == 'main' ||
+                           (env.BRANCH_NAME != null && env.BRANCH_NAME.startsWith('feat/argocd')) ||
+                           (env.TAG_NAME != null && env.TAG_NAME.matches(/v\d+\.\d+\.\d+/))
+                }
+            }
+            steps {
+                script {
+                    syncAllManifests()
+                }
+            }
+        }
     }
 
     // ==========================================
@@ -507,6 +528,76 @@ def buildAndPushDocker(String svc) {
                 """
                     }
                 }
+            }
+        }
+    }
+}
+
+// --- Helper: Đồng bộ toàn bộ Helm Charts sang Manifest Repo (ArgoCD) ---
+def syncAllManifests() {
+    script {
+        def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+
+        // Xác định môi trường dựa trên nhánh/tag
+        def targetEnv = ""
+        def imageTag = ""
+        if (env.TAG_NAME && env.TAG_NAME.matches(/v\d+\.\d+\.\d+/)) {
+            targetEnv = "staging"
+            imageTag = env.TAG_NAME
+        } else {
+            targetEnv = "dev"
+            imageTag = (env.BRANCH_NAME == 'main') ? "main" : shortCommit
+        }
+
+        // Danh sách tất cả các service cần sync manifest
+        def allServices = [
+            'backoffice', 'storefront',
+            'backoffice-bff', 'storefront-bff',
+            'cart', 'customer', 'delivery', 'inventory',
+            'location', 'media', 'order', 'payment',
+            'payment-paypal', 'product', 'promotion',
+            'rating', 'recommendation', 'sampledata',
+            'search', 'tax', 'webhook'
+        ]
+
+        withCredentials([usernamePassword(credentialsId: 'jenkins-github-manifest-token', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
+            def manifestRepoHttps = "https://${GIT_USER}:${GIT_TOKEN}@github.com/nbsng/Intro2DevOps-Project02Deployment.git"
+
+            // Clone manifest repo một lần duy nhất
+            sh 'rm -rf Intro2DevOps-Project02Deployment'
+            sh "git clone ${manifestRepoHttps} Intro2DevOps-Project02Deployment"
+
+            // Duyệt qua từng service và copy Helm chart nếu tồn tại
+            for (int i = 0; i < allServices.size(); i++) {
+                def svc = allServices[i]
+                def chartSrc = "k8s/chart/${svc}"
+                def chartDest = "Intro2DevOps-Project02Deployment/${targetEnv}/${svc}"
+
+                if (fileExists(chartSrc)) {
+                    echo "[INFO] Đang sync Helm chart cho service: ${svc} -> ${targetEnv}/"
+                    sh "mkdir -p ${chartDest}"
+                    sh "cp -r ${chartSrc}/. ${chartDest}/"
+
+                    // Cập nhật imageTag trong values.yaml nếu tồn tại
+                    def valuesPath = "${chartDest}/values.yaml"
+                    if (fileExists(valuesPath)) {
+                        sh "sed -i 's|tag:.*|tag: \"${imageTag}\"|g' ${valuesPath}"
+                    }
+                } else {
+                    echo "[WARN] Không tìm thấy k8s/chart/${svc}, bỏ qua service này."
+                }
+            }
+
+            // Commit và Push toàn bộ trong một lần
+            dir('Intro2DevOps-Project02Deployment') {
+                sh """
+                    git config user.name 'Jenkins Automated CI'
+                    git config user.email 'xuxinhno1@users.noreply.github.com'
+                    git add .
+                    git diff --cached --quiet || git commit -m 'ArgoCD Sync: full manifest update for ${targetEnv} at ${imageTag} [skip ci]'
+                    git remote set-url origin ${manifestRepoHttps}
+                    git push origin main
+                """
             }
         }
     }
