@@ -549,53 +549,66 @@ def syncAllManifests() {
             imageTag = (env.BRANCH_NAME == 'main') ? "main" : shortCommit
         }
 
-        // Danh sách tất cả các service cần sync manifest
-        def allServices = [
-            'backoffice', 'storefront',
-            'backoffice-bff', 'storefront-bff',
-            'cart', 'customer', 'delivery', 'inventory',
-            'location', 'media', 'order', 'payment',
-            'payment-paypal', 'product', 'promotion',
-            'rating', 'recommendation', 'sampledata',
-            'search', 'tax', 'webhook'
+        // Danh sách các chart folder thực tế trong k8s/charts/
+        def chartFolders = [
+            'backoffice-ui',
+            'storefront-ui',
+            'backoffice-bff',
+            'storefront-bff',
+            'cart',
+            'customer',
+            'inventory',
+            'location',
+            'media',
+            'order',
+            'payment',
+            'payment-paypal',
+            'product',
+            'promotion',
+            'rating',
+            'recommendation',
+            'sampledata',
+            'search',
+            'tax',
+            'webhook'
         ]
 
         withCredentials([usernamePassword(credentialsId: 'jenkins-github-manifest-token', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
-            def manifestRepoHttps = "https://${GIT_USER}:${GIT_TOKEN}@github.com/nbsng/Intro2DevOps-Project02Deployment.git"
-
-            // Clone manifest repo một lần duy nhất
+            // [FIX] Dùng single-quote sh để tránh Groovy string interpolation với secret GIT_TOKEN
             sh 'rm -rf Intro2DevOps-Project02Deployment'
-            sh "git clone ${manifestRepoHttps} Intro2DevOps-Project02Deployment"
+            sh 'git clone https://${GIT_USER}:${GIT_TOKEN}@github.com/nbsng/Intro2DevOps-Project02Deployment.git Intro2DevOps-Project02Deployment'
 
-            // Duyệt qua từng service và copy Helm chart nếu tồn tại
-            for (int i = 0; i < allServices.size(); i++) {
-                def svc = allServices[i]
-                def chartSrc = "k8s/chart/${svc}"
-                def chartDest = "Intro2DevOps-Project02Deployment/${targetEnv}/${svc}"
+            // Duyệt qua từng chart folder và copy sang manifest repo
+            for (int i = 0; i < chartFolders.size(); i++) {
+                def chart = chartFolders[i]
+                // [FIX] Đường dẫn đúng là k8s/charts/ (có chữ s)
+                def chartSrc = "k8s/charts/${chart}"
+                def chartDest = "Intro2DevOps-Project02Deployment/${targetEnv}/${chart}"
 
                 if (fileExists(chartSrc)) {
-                    echo "[INFO] Đang sync Helm chart cho service: ${svc} -> ${targetEnv}/"
+                    echo "[INFO] Đang sync Helm chart: ${chart} -> ${targetEnv}/"
                     sh "mkdir -p ${chartDest}"
                     sh "cp -r ${chartSrc}/. ${chartDest}/"
 
-                    // Cập nhật imageTag trong values.yaml nếu tồn tại
+                    // [FIX] Pattern sed khớp với bất kỳ indent level
                     def valuesPath = "${chartDest}/values.yaml"
                     if (fileExists(valuesPath)) {
-                        sh "sed -i 's|tag:.*|tag: \"${imageTag}\"|g' ${valuesPath}"
+                        sh "sed -i \"s|^\\(\\s*tag:\\s*\\).*|\\1${imageTag}|\" ${valuesPath}"
                     }
                 } else {
-                    echo "[WARN] Không tìm thấy k8s/chart/${svc}, bỏ qua service này."
+                    echo "[WARN] Không tìm thấy ${chartSrc}, bỏ qua."
                 }
             }
 
-            // Commit và Push toàn bộ trong một lần
+            // [FIX] Dùng \${GIT_USER} và \${GIT_TOKEN} (escape $) trong double-quote sh
+            def commitMsg = "ArgoCD Sync: full manifest update for ${targetEnv} at ${imageTag} [skip ci]"
             dir('Intro2DevOps-Project02Deployment') {
                 sh """
                     git config user.name 'Jenkins Automated CI'
                     git config user.email 'xuxinhno1@users.noreply.github.com'
                     git add .
-                    git diff --cached --quiet || git commit -m 'ArgoCD Sync: full manifest update for ${targetEnv} at ${imageTag} [skip ci]'
-                    git remote set-url origin ${manifestRepoHttps}
+                    git diff --cached --quiet || git commit -m '${commitMsg}'
+                    git remote set-url origin https://\${GIT_USER}:\${GIT_TOKEN}@github.com/nbsng/Intro2DevOps-Project02Deployment.git
                     git push origin main
                 """
             }
