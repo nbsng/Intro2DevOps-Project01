@@ -365,19 +365,16 @@ pipeline {
         stage('CD: Sync Dev Manifests') {
             when {
                 expression {
-                    // Chỉ chạy trên main hoặc feat/argocd (setup), KHÔNG chạy khi có Git Tag (đã có stage riêng)
-                    return (env.TAG_NAME == null || !env.TAG_NAME.matches(/v\d+\.\d+\.\d+/)) &&
-                           (changedFolders.contains('k8s') ||
-                            env.BRANCH_NAME == 'main' ||
-                            (env.BRANCH_NAME != null && env.BRANCH_NAME.startsWith('feat/argocd')))
+                    // Chạy trên mọi nhánh (trừ khi có Git Tag → đã có stage Staging riêng)
+                    // Feature branch: chỉ update service nào có thay đổi với tag = commitId
+                    // main branch: update service có thay đổi với tag = "main"
+                    return (env.TAG_NAME == null || !env.TAG_NAME.matches(/v\d+\.\d+\.\d+/))
                 }
             }
             steps {
                 script {
                     def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
                     def imageTag    = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
-                    // Chỉ sync những service chart đã được build Docker image lần này
-                    // (dựa theo changedFolders — map tên service folder -> chart name)
                     def svcToChartMap = [
                         'backoffice': 'backoffice-ui', 'storefront': 'storefront-ui',
                         'backoffice-bff': 'backoffice-bff', 'storefront-bff': 'storefront-bff',
@@ -392,11 +389,14 @@ pipeline {
                             changedCharts.add(svcToChartMap[svc])
                         }
                     }
-                    // Nếu có thay đổi trong k8s/ hoặc đang setup argocd → sync toàn bộ
-                    if (changedFolders.contains('k8s') || changedFolders.isEmpty()) {
+                    // Nếu có thay đổi trong k8s/ → sync toàn bộ (cập nhật cấu hình Helm chart)
+                    // [FIX] Bỏ changedFolders.isEmpty(): trước đây khi push commit rỗng sẽ
+                    // sync toàn bộ với tag shortCommit chưa tồn tại → CrashLoopBackOff
+                    if (changedFolders.contains('k8s')) {
                         changedCharts = CHART_VALUE_KEYS.keySet().toList()
                     }
                     if (!changedCharts.isEmpty()) {
+                        echo "[INFO] 🚀 Syncing ${changedCharts} → dev with tag: ${imageTag}"
                         syncAllManifests(changedCharts, 'dev', imageTag)
                     } else {
                         echo "[INFO] Không có service Docker nào thay đổi, bỏ qua sync manifest."
