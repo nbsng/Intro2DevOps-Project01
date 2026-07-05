@@ -315,7 +315,23 @@ pipeline {
                             }
                         }
                     }
-                    syncAllManifests(allDockerServices, 'staging', env.TAG_NAME)
+                    
+                    def svcToChartMap = [
+                        'backoffice': 'backoffice-ui', 'storefront': 'storefront-ui',
+                        'backoffice-bff': 'backoffice-bff', 'storefront-bff': 'storefront-bff',
+                        'cart': 'cart', 'customer': 'customer', 'inventory': 'inventory',
+                        'media': 'media', 'order': 'order', 'product': 'product',
+                        'sampledata': 'sampledata', 'search': 'search', 'tax': 'tax'
+                    ]
+                    
+                    def allCharts = []
+                    allDockerServices.each { svc ->
+                        if (svcToChartMap.containsKey(svc)) {
+                            allCharts.add(svcToChartMap[svc])
+                        }
+                    }
+                    
+                    syncAllManifests(allCharts, 'staging', env.TAG_NAME)
                 }
             }
         }
