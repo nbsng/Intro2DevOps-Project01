@@ -324,12 +324,16 @@ pipeline {
         stage('CD: Release Staging — Build All Services') {
             when {
                 expression {
-                    return env.TAG_NAME != null && env.TAG_NAME.matches(/v\d+\.\d+\.\d+/)
+                    return env.TAG_NAME != null && env.TAG_NAME.matches(/v\.?\d+\.\d+\.\d+/)
                 }
             }
             steps {
                 script {
                     echo "[INFO] 🚀 Git Tag Release ${env.TAG_NAME} — Building ALL services for staging..."
+
+                    echo "[INFO] 🛠️ Compiling and packaging all Maven modules..."
+                    sh "mvn clean install -DskipTests"
+
                     def allDockerServices = [
                         'backoffice', 'storefront',
                         'backoffice-bff', 'storefront-bff',
@@ -368,7 +372,7 @@ pipeline {
                     // Chạy trên mọi nhánh (trừ khi có Git Tag → đã có stage Staging riêng)
                     // Feature branch: chỉ update service nào có thay đổi với tag = commitId
                     // main branch: update service có thay đổi với tag = "main"
-                    return (env.TAG_NAME == null || !env.TAG_NAME.matches(/v\d+\.\d+\.\d+/))
+                    return (env.TAG_NAME == null || !env.TAG_NAME.matches(/v\.?\d+\.\d+\.\d+/))
                 }
             }
             steps {
