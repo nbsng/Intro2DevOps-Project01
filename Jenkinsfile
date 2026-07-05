@@ -284,7 +284,7 @@ pipeline {
         }
 
         stage('CD: Release Staging') {
-            when { expression { return env.TAG_NAME != null && env.TAG_NAME.matches(/v\.?\d+\.\d+\.\d+/) } }
+            when { expression { return env.TAG_NAME != null && env.TAG_NAME.matches(/v?\d+\.\d+\.\d+.*/) } }
             steps {
                 script {
                     echo "[INFO] 🚀 Git Tag Release ${env.TAG_NAME} — Building ALL services for staging..."
@@ -301,7 +301,15 @@ pipeline {
                         allDockerServices.each { svc ->
                             def imageName = "sybew/${svc}:${env.TAG_NAME}"
                             if (fileExists("${svc}/Dockerfile")) {
-                                sh "docker build -t ${imageName} ./${svc}"
+                                echo "[INFO] Building ${imageName}..."
+                                // media/Dockerfile dùng path tuyệt đối từ root workspace
+                                // (COPY media/target/*.jar và COPY sampledata/images/)
+                                // nên cần build với root context và chỉ định Dockerfile bằng -f
+                                if (svc == 'media') {
+                                    sh "docker build -t ${imageName} . -f ./${svc}/Dockerfile"
+                                } else {
+                                    sh "docker build -t ${imageName} ./${svc}"
+                                }
                                 sh "docker push ${imageName}"
                                 sh "docker rmi ${imageName} || true"
                             }
@@ -313,7 +321,7 @@ pipeline {
         }
 
         stage('CD: Sync Dev Manifests') {
-            when { expression { return (env.TAG_NAME == null || !env.TAG_NAME.matches(/v\.?\d+\.\d+\.\d+/)) } }
+            when { expression { return (env.TAG_NAME == null || !env.TAG_NAME.matches(/v?\d+\.\d+\.\d+.*/)) } }
             steps {
                 script {
                     def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
@@ -443,7 +451,15 @@ def buildAndPushDocker(String svc) {
         def imageTag  = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
         def imageName = "sybew/${svc}:${imageTag}"
 
-        sh "docker build -t ${imageName} ./${svc}"
+        echo "[INFO] Building Docker image: ${imageName}"
+        // media/Dockerfile dùng path tuyệt đối từ root workspace
+        if (svc == 'media') {
+            sh "docker build -t ${imageName} . -f ./${svc}/Dockerfile"
+        } else {
+            sh "docker build -t ${imageName} ./${svc}"
+        }
+
+        echo "[INFO] Pushing to Docker Hub: ${imageName}"
         withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
             sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
             sh "docker push ${imageName}"
