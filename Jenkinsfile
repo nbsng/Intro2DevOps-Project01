@@ -1,4 +1,3 @@
-// Khai báo biến toàn cục để lưu danh sách các thư mục có sự thay đổi
 def changedFolders = []
 
 pipeline {
@@ -17,33 +16,19 @@ pipeline {
     }
 
     stages {
-        // ==========================================
-        // 0. SYSTEM: TỰ ĐỘNG PHÁT HIỆN SỰ THAY ĐỔI
-        // ==========================================
         stage('System: Detect Changes') {
             steps {
                 script {
-                    echo "[INFO] Đang phân tích sự thay đổi của mã nguồn (Native Git Diff)..."
+                    echo "[INFO] Detecting source code changes..."
                     def baseRef = ""
                     
                     if (env.CHANGE_ID) {
                         baseRef = "origin/${env.CHANGE_TARGET}"
-                        echo "[INFO] Phát hiện Pull Request. Đang so sánh HEAD với ${baseRef}..."
-
-                        // [FIX] Ép Jenkins fetch đích danh nhánh target của PR về local
                         sh "git fetch origin ${env.CHANGE_TARGET}:refs/remotes/origin/${env.CHANGE_TARGET} --no-tags || true"
                     } else if (currentBuild.previousBuild == null) {
-                        echo "[INFO] Nhánh mới được tạo (First Build). Đang dò tìm nhánh mẹ gần nhất..."
-
                         baseRef = sh(script: '''#!/bin/bash
-                            # 1. Tắt cơ chế tự sập Pipeline khi có lỗi shell
                             set +e
-
-                            # 2. Tải TẤT CẢ các nhánh từ remote về local để thuật toán có data đối chiếu
-                            # Ép tải vào refs/remotes/origin/* và giấu log đi để không làm hỏng kết quả trả về
                             git fetch origin '+refs/heads/*:refs/remotes/origin/*' --no-tags > /dev/null 2>&1
-
-                            # 3. Thuật toán dò tìm nhánh mẹ
                             CURRENT_BRANCH=${BRANCH_NAME}
                             git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v "origin/${CURRENT_BRANCH}" | while read branch; do
                                 mb=$(git merge-base HEAD "$branch" 2>/dev/null)
@@ -53,14 +38,10 @@ pipeline {
                                 fi
                             done | sort -n | head -n 1 | awk '{print $2}'
                         ''', returnStdout: true).trim()
-
-                        if (!baseRef) {
-                            baseRef = "HEAD~1" 
-                        }
-                        echo "[INFO] Đã tìm thấy điểm rẽ nhánh gốc: ${baseRef}..."
+                        
+                        if (!baseRef) { baseRef = "HEAD~1" }
                     } else {
                         baseRef = env.GIT_PREVIOUS_COMMIT ?: "HEAD~1"
-                        echo "[INFO] Push cập nhật nhánh. So sánh HEAD với commit build trước đó (${baseRef})..."
                     }
 
                     sh "git fetch origin || true"
@@ -74,22 +55,18 @@ pipeline {
                         }
                     }
                     changedFolders = changedFolders.unique()
-                    echo "=> CÁC DỊCH VỤ CÓ SỰ THAY ĐỔI LÀ: ${changedFolders}"
+                    echo "=> CHANGED SERVICES: ${changedFolders}"
                 }
             }
         }
 
         stage('Security: Gitleaks Scan') {
             steps {
-                echo "[INFO] Đang quét mã nguồn để tìm mật khẩu, token bị lộ (Gitleaks)..."
                 sh 'gitleaks detect --source . --verbose --report-path gitleaks-report.json || true'
                 archiveArtifacts artifacts: 'gitleaks-report.json', allowEmptyArchive: true
             }
         }
 
-        // ==========================================
-        // CÁC SERVICES NODE.JS
-        // ==========================================
         stage('CI: Backoffice') {
             when { expression { return changedFolders.contains('backoffice') } }
             stages {
@@ -110,9 +87,6 @@ pipeline {
             }
         }
 
-        // ==========================================
-        // CÁC SERVICES MAVEN BFF (Verify)
-        // ==========================================
         stage('CI: Backoffice-bff') {
             when { expression { return changedFolders.contains('backoffice-bff') } }
             stages {
@@ -131,9 +105,6 @@ pipeline {
             }
         }
 
-        // ==========================================
-        // CÁC SERVICES MAVEN CORE (Install & Test)
-        // ==========================================
         stage('CI: Cart') {
             when { expression { return changedFolders.contains('cart') } }
             stages {
@@ -290,7 +261,6 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('webhook') } }
                 stage('Test') { steps { testMavenCore('webhook') } }
                 stage('Security') { steps { scanMavenService('webhook') } }
-                // [ĐÃ SỬA] Bổ sung Docker Build & Push cho Webhook service đúng kiến trúc deploy
                 stage('Docker Build & Push') { steps { buildAndPushDocker('webhook') } }
             }
         }
@@ -304,9 +274,6 @@ pipeline {
             }
         }
 
-        // ==========================================
-        // SERVICE ĐẶC BIỆT: DELIVERY (Kiểm tra điều kiện Test)
-        // ==========================================
         stage('CI: Delivery') {
             when { expression { return changedFolders.contains('delivery') } }
             stages {
@@ -316,118 +283,82 @@ pipeline {
             }
         }
 
-        // ==========================================
-        // CD: STAGING — BUILD TẤT CẢ SERVICES KHI CÓ GIT TAG v1.2.3
-        // Vì khi push Git Tag, changedFolders = [] → không có CI stage nào chạy
-        // Cần stage riêng để build Docker image cho TẤT CẢ services với tag release
-        // ==========================================
-        stage('CD: Release Staging — Build All Services') {
-            when {
-                expression {
-                    return env.TAG_NAME != null && env.TAG_NAME.matches(/v\.?\d+\.\d+\.\d+/)
-                }
-            }
+        stage('CD: Release Staging') {
+            when { expression { return env.TAG_NAME != null && env.TAG_NAME.matches(/v\.?\d+\.\d+\.\d+/) } }
             steps {
                 script {
                     echo "[INFO] 🚀 Git Tag Release ${env.TAG_NAME} — Building ALL services for staging..."
-
-                    echo "[INFO] 🛠️ Compiling and packaging all Maven modules..."
                     sh "mvn clean install -DskipTests"
 
                     def allDockerServices = [
-                        'backoffice', 'storefront',
-                        'backoffice-bff', 'storefront-bff',
-                        'cart', 'customer', 'inventory',
-                        'media', 'order',
+                        'backoffice', 'storefront', 'backoffice-bff', 'storefront-bff',
+                        'cart', 'customer', 'inventory', 'media', 'order',
                         'product', 'sampledata', 'search', 'tax'
                     ]
+                    
                     withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
                         sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
-                        for (int i = 0; i < allDockerServices.size(); i++) {
-                            def svc = allDockerServices[i]
+                        allDockerServices.each { svc ->
                             def imageName = "sybew/${svc}:${env.TAG_NAME}"
                             if (fileExists("${svc}/Dockerfile")) {
-                                echo "[INFO] Building ${imageName}..."
                                 sh "docker build -t ${imageName} ./${svc}"
                                 sh "docker push ${imageName}"
                                 sh "docker rmi ${imageName} || true"
-                            } else {
-                                echo "[WARN] Không tìm thấy Dockerfile cho ${svc}, bỏ qua."
                             }
                         }
                     }
-                    // Sau khi build xong toàn bộ, update deployment repo staging
                     syncAllManifests(allDockerServices, 'staging', env.TAG_NAME)
                 }
             }
         }
 
-        // ==========================================
-        // CD: DEV — Sync manifest cho các services thay đổi trên main
-        // Chỉ update services đã được build trong lần chạy này
-        // ==========================================
         stage('CD: Sync Dev Manifests') {
-            when {
-                expression {
-                    // Chạy trên mọi nhánh (trừ khi có Git Tag → đã có stage Staging riêng)
-                    // Feature branch: chỉ update service nào có thay đổi với tag = commitId
-                    // main branch: update service có thay đổi với tag = "main"
-                    return (env.TAG_NAME == null || !env.TAG_NAME.matches(/v\.?\d+\.\d+\.\d+/))
-                }
-            }
+            when { expression { return (env.TAG_NAME == null || !env.TAG_NAME.matches(/v\.?\d+\.\d+\.\d+/)) } }
             steps {
                 script {
                     def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                    def imageTag    = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
+                    def imageTag = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
+                    
                     def svcToChartMap = [
                         'backoffice': 'backoffice-ui', 'storefront': 'storefront-ui',
                         'backoffice-bff': 'backoffice-bff', 'storefront-bff': 'storefront-bff',
                         'cart': 'cart', 'customer': 'customer', 'inventory': 'inventory',
-                        'media': 'media', 'order': 'order',
-                        'product': 'product', 'sampledata': 'sampledata',
-                        'search': 'search', 'tax': 'tax'
+                        'media': 'media', 'order': 'order', 'product': 'product',
+                        'sampledata': 'sampledata', 'search': 'search', 'tax': 'tax'
                     ]
+                    
                     def changedCharts = []
                     changedFolders.each { svc ->
-                        if (svcToChartMap.containsKey(svc)) {
-                            changedCharts.add(svcToChartMap[svc])
-                        }
+                        if (svcToChartMap.containsKey(svc)) changedCharts.add(svcToChartMap[svc])
                     }
-                    // Nếu có thay đổi trong k8s/ → sync toàn bộ (cập nhật cấu hình Helm chart)
-                    // [FIX] Bỏ changedFolders.isEmpty(): trước đây khi push commit rỗng sẽ
-                    // sync toàn bộ với tag shortCommit chưa tồn tại → CrashLoopBackOff
+                    
                     if (changedFolders.contains('k8s')) {
                         changedCharts = CHART_VALUE_KEYS.keySet().toList()
                     }
+                    
                     if (!changedCharts.isEmpty()) {
-                        echo "[INFO] 🚀 Syncing ${changedCharts} → dev with tag: ${imageTag}"
                         syncAllManifests(changedCharts, 'dev', imageTag)
                     } else {
-                        echo "[INFO] Không có service Docker nào thay đổi, bỏ qua sync manifest."
+                        echo "[INFO] No Docker services changed, skipping manifest sync."
                     }
                 }
             }
         }
     }
 
-    // ==========================================
-    // DỌN DẸP & THÔNG BÁO SAU KHI CHẠY
-    // ==========================================
     post {
         always { cleanWs() }
-        success { echo "✅ Pipeline hoàn thành thành công!" }
-        failure { echo "❌ Pipeline thất bại!" }
+        success { echo "✅ Pipeline completed successfully!" }
+        failure { echo "❌ Pipeline failed!" }
     }
 }
 
-// =========================================================================================
-// ============================= CÁC HÀM HỖ TRỢ (HELPER METHODS) =============================
-// =========================================================================================
+// ==========================================
+// HELPER METHODS
+// ==========================================
 
-// --- Helpers cho Node.js ---
 def buildNodeService(String svc) {
     dir(svc) {
-        echo "[INFO] Đang cài đặt thư viện và build ${svc}..."
         sh 'npm ci'
         sh 'npm run build'
     }
@@ -435,7 +366,6 @@ def buildNodeService(String svc) {
 
 def formatNodeService(String svc) {
     dir(svc) {
-        echo "[INFO] Đang kiểm tra Format..."
         sh 'npm run lint'
         sh 'npx prettier --check .'
     }
@@ -443,11 +373,9 @@ def formatNodeService(String svc) {
 
 def scanNodeService(String svc) {
     dir(svc) {
-        echo "[INFO] Quét SonarQube..."
         withSonarQubeEnv('Sonar-Server') {
             sh "sonar-scanner -Dsonar.projectKey=${svc} -Dsonar.sources=."
         }
-        echo "[INFO] Quét Snyk..."
         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
             sh "snyk test --all-projects --json-file-output=snyk-${svc}-report.json || true"
         }
@@ -455,13 +383,10 @@ def scanNodeService(String svc) {
     }
 }
 
-// --- Helpers cho Maven BFF ---
 def verifyMavenBff(String svc) {
-    echo "[INFO] Đang chạy Verify và Checkstyle cho ${svc}..."
     sh "mvn clean verify checkstyle:checkstyle -DskipTests -pl ${svc} -am"
 }
 
-// --- Helpers cho Maven Core ---
 def buildMavenCore(String svc) {
     sh "mvn clean install -DskipTests -pl ${svc} -am"
 }
@@ -484,21 +409,17 @@ def testMavenCore(String svc) {
 }
 
 def scanMavenService(String svc) {
-    echo "[INFO] Quét SonarQube cho ${svc}..."
     withSonarQubeEnv('Sonar-Server') {
         sh "mvn sonar:sonar -pl ${svc} -am -Dsonar.projectKey=${svc}"
     }
-    echo "[INFO] Quét Snyk cho ${svc}..."
     withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
         sh "snyk test --all-projects --json-file-output=snyk-${svc}-report.json --target-dir=${svc} || true"
     }
     archiveArtifacts artifacts: "snyk-${svc}-report.json", allowEmptyArchive: true
 }
 
-// --- Helper đặc thù cho Delivery ---
 def testMavenDelivery(String svc) {
     if (fileExists("${svc}/src/test")) {
-        echo "[INFO] Phát hiện thư mục test trong ${svc}, đang chạy Test..."
         try {
             sh "mvn test jacoco:report -pl ${svc} -am"
         } finally {
@@ -513,60 +434,24 @@ def testMavenDelivery(String svc) {
                 )
             }
         }
-    } else {
-        echo "[INFO] Không tìm thấy thư mục test trong ${svc}, bỏ qua."
     }
 }
 
-// --- Helper Docker Build & Push (chỉ build + push image, KHÔNG update manifest) ---
-// Manifest được update tập trung bởi syncAllManifests() ở stage CD
 def buildAndPushDocker(String svc) {
     script {
         def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-        // Khi gọi từ CI stage (changedFolders), luôn là luồng dev
-        // Luồng staging (TAG_NAME) sẽ không đi qua đây vì CI stages bị skip khi tag push
         def imageTag  = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
         def imageName = "sybew/${svc}:${imageTag}"
 
-        echo "[INFO] Building Docker image: ${imageName}"
         sh "docker build -t ${imageName} ./${svc}"
-
-        echo "[INFO] Pushing to Docker Hub: ${imageName}"
         withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
             sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
             sh "docker push ${imageName}"
             sh "docker rmi ${imageName} || true"
         }
-        // Manifest update được xử lý tập trung tại stage 'CD: Sync Dev Manifests'
     }
 }
 
-// =========================================================================================
-// === HELPER: JENKINS CHỈ UPDATE VALUES.YAML TRONG DEPLOYMENT REPO =======================
-// =========================================================================================
-// Kiến trúc GitOps đúng (ArgoCD multi-source, v2.6+):
-//
-//   Intro2DevOps-Project01 (Source Repo)       Intro2DevOps-Project02Deployment (Deploy Repo)
-//   ├── k8s/charts/cart/                        ├── dev/
-//   │   ├── Chart.yaml  ← Helm templates        │   ├── cart/
-//   │   ├── values.yaml ← default values        │   │   └── values.yaml ← CHỈ override tag
-//   │   └── templates/                          │   ├── backoffice-ui/
-//   └── ...                                     │   │   └── values.yaml
-//                                               │   └── ...
-//                                               └── staging/
-//                                                   └── ...
-//
-//   Jenkins chỉ làm một việc: update tag trong deployment repo sau khi push Docker image.
-//   ArgoCD dùng "sources" (multi-source) để kết hợp:
-//     source[0] → chart từ Source Repo (k8s/charts/<svc>/)
-//     source[1] → values từ Deploy Repo   (dev/<svc>/values.yaml)
-//
-// NOTE: Các ArgoCD Application CRDs được tạo 1 lần bằng hàm initArgoCDApplications()
-//       Sau đó Jenkins CHỈ update values.yaml — ArgoCD tự phát hiện và sync.
-// =========================================================================================
-
-// Map: chart name → top-level key trong values.yaml (để ghi đúng path)
-// ui charts dùng "ui.image.tag", backend charts dùng "backend.image.tag"
 @groovy.transform.Field
 def CHART_VALUE_KEYS = [
     'backoffice-ui'   : 'ui',
@@ -584,11 +469,6 @@ def CHART_VALUE_KEYS = [
     'tax'             : 'backend'
 ]
 
-// --- Được gọi bởi các stage CD sau khi Docker image đã được push ---
-// Params:
-//   charts    : List<String> tên chart cần update (từ CHART_VALUE_KEYS)
-//   targetEnv : "dev" hoặc "staging"
-//   imageTag  : tag image đã push lên Docker Hub
 def syncAllManifests(List<String> charts, String targetEnv, String imageTag) {
     script {
         def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
@@ -597,27 +477,22 @@ def syncAllManifests(List<String> charts, String targetEnv, String imageTag) {
             sh 'rm -rf Intro2DevOps-Project02Deployment'
             sh 'git clone https://${GIT_USER}:${GIT_TOKEN}@github.com/nbsng/Intro2DevOps-Project02Deployment.git Intro2DevOps-Project02Deployment'
 
-            // Chỉ update các chart được truyền vào (không overwrite service khác)
-            for (int i = 0; i < charts.size(); i++) {
-                def chart    = charts[i]
+            charts.each { chart ->
                 def valueKey = CHART_VALUE_KEYS[chart]
-                if (!valueKey) {
-                    echo "[WARN] Chart '${chart}' không có trong CHART_VALUE_KEYS, bỏ qua."
-                    continue
-                }
-                def valuesDir  = "Intro2DevOps-Project02Deployment/${targetEnv}/${chart}"
-                def valuesFile = "${valuesDir}/values.yaml"
-                sh "mkdir -p ${valuesDir}"
+                if (valueKey) {
+                    def valuesDir  = "Intro2DevOps-Project02Deployment/${targetEnv}/${chart}"
+                    def valuesFile = "${valuesDir}/values.yaml"
+                    sh "mkdir -p ${valuesDir}"
 
-                def content = """\
-# Auto-generated by Jenkins CI — DO NOT EDIT MANUALLY
+                    def content = """\
+# Auto-generated by Jenkins CI
 # Branch: ${env.BRANCH_NAME ?: 'N/A'} | Commit: ${shortCommit}
 ${valueKey}:
   image:
     tag: "${imageTag}"
 """
-                writeFile file: valuesFile, text: content
-                echo "[INFO] ✅ ${targetEnv}/${chart} → tag: ${imageTag}"
+                    writeFile file: valuesFile, text: content
+                }
             }
 
             def commitMsg = "ci(${targetEnv}): update [${charts.join(', ')}] to tag ${imageTag} [skip ci]"
@@ -631,14 +506,11 @@ ${valueKey}:
                     git push origin main
                 """
             }
-            echo "[INFO] ✅ Deployment repo updated → ArgoCD sẽ tự phát hiện và sync."
         }
     }
 }
 
-// --- Hàm khởi tạo 1 lần: tạo ArgoCD Application CRDs dùng multi-source ---
-// Chạy thủ công 1 lần lúc setup, KHÔNG chạy mỗi lần build
-// Yêu cầu: argocd CLI đã login vào cluster
+// NOTE: Run this function manually once to setup ArgoCD Application CRDs.
 def initArgoCDApplications(String targetEnv = 'dev') {
     script {
         CHART_VALUE_KEYS.each { chart, valueKey ->
@@ -660,7 +532,6 @@ def initArgoCDApplications(String targetEnv = 'dev') {
                   --source-1-revision main \\
                   --source-1-ref     valuesRepo \\
                   --upsert || true
-                echo "[INFO] ArgoCD App created/updated: ${appName}"
             """
         }
     }
