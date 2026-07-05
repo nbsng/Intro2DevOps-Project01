@@ -330,6 +330,10 @@ pipeline {
             steps {
                 script {
                     echo "[INFO] 🚀 Git Tag Release ${env.TAG_NAME} — Building ALL services for staging..."
+
+                    echo "[INFO] 🛠️ Compiling and packaging all Maven modules..."
+                    sh "mvn clean install -DskipTests"
+
                     def allDockerServices = [
                         'backoffice', 'storefront',
                         'backoffice-bff', 'storefront-bff',
