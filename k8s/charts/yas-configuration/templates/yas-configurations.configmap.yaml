@@ -9,7 +9,7 @@ data:
   application.yaml: |
     {{- $configStr := toYaml .Values.applicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
   logback.xml: |
     {{- .Values.logbackConfig | nindent 4 }}
 ---
@@ -24,7 +24,7 @@ data:
   gateway-routes-config.yaml: |
     {{- $configStr := toYaml .Values.gatewayRoutesConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 #Configmap for backoffice-bff extra
 apiVersion: v1
@@ -37,7 +37,7 @@ data:
   backoffice-bff-extra-config.yaml: |
     {{- $configStr := toYaml .Values.backofficeBffExtraConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 #Configmap for storefront-bff extra
 apiVersion: v1
@@ -50,7 +50,7 @@ data:
   storefront-bff-extra-config.yaml: |
     {{- $configStr := toYaml .Values.storefrontBffExtraConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 # Configmap for media application config custom
 apiVersion: v1
@@ -63,7 +63,7 @@ data:
   media-application.yaml: |
     {{- $configStr := toYaml .Values.mediaApplicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 #Configmap for customer application config custom
 apiVersion: v1
@@ -76,7 +76,7 @@ data:
   customer-application.yaml: |
     {{- $configStr := toYaml .Values.customerApplicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 # Configmap of search application config custom
 apiVersion: v1
@@ -89,7 +89,7 @@ data:
   search-application.yaml: |
     {{- $configStr := toYaml .Values.searchApplicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 # Configmap of cart application config custom
 apiVersion: v1
@@ -102,7 +102,7 @@ data:
   cart-application.yaml: |
     {{- $configStr := toYaml .Values.cartApplicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 # Configmap of order application config custom
 apiVersion: v1
@@ -115,7 +115,7 @@ data:
   order-application.yaml: |
     {{- $configStr := toYaml .Values.orderApplicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 # Configmap of payment application config custom
 apiVersion: v1
@@ -128,7 +128,7 @@ data:
   payment-application.yaml: |
     {{- $configStr := toYaml .Values.paymentApplicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 # Configmap of payment-paypal application config custom
 apiVersion: v1
@@ -141,7 +141,7 @@ data:
   payment-paypal-application.yaml: |
     {{- $configStr := toYaml .Values.paymentPaypalApplicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 # Configmap of production application config custom
 apiVersion: v1
@@ -154,7 +154,7 @@ data:
   product-application.yaml: |
     {{- $configStr := toYaml .Values.productApplicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 # Configmap of recommendation application config custom
 apiVersion: v1
@@ -167,7 +167,7 @@ data:
   recommendation-application.yaml: |
     {{- $configStr := toYaml .Values.recommendationApplicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
 ---
 # Configmap of sampledata application config custom
 apiVersion: v1
@@ -180,4 +180,4 @@ data:
   sampledata-application.yaml: |
     {{- $configStr := toYaml .Values.sampledataApplicationConfig -}}
     {{- $targetDomain := .Values.global.domain | default "yas.local.com" -}}
-    {{- tpl (replace "yas.local.com" $targetDomain $configStr) . | nindent 4 }}
+    {{- tpl (replace "yas.local.com" $targetDomain $configStr | replace (printf "identity.%s" $targetDomain) "identity.yas.local.com") . | nindent 4 }}
