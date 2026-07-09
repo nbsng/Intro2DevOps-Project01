@@ -28,28 +28,15 @@ spec:
   {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
-    {{- $targetDomain := "yas.local.com" }}
-    {{- if $.Values.global }}
-      {{- if $.Values.global.domain }}
-        {{- $targetDomain = $.Values.global.domain }}
-      {{- end }}
-    {{- end }}
     {{- with .Values.ingress.tls }}
     - hosts:
-        - {{ replace "yas.local.com" $targetDomain .host | quote }}
+        - {{ .host | quote }}
       secretName: {{ .secretName }}
     {{- end }}
   {{- end }}
   rules:
-    {{- $targetDomain := "yas.local.com" }}
-    {{- if $.Values.global }}
-      {{- if $.Values.global.domain }}
-        {{- $targetDomain = $.Values.global.domain }}
-      {{- end }}
-    {{- end }}
     {{- with .Values.ingress }}
-    {{- $host := replace "yas.local.com" $targetDomain .host }}
-    - host: {{ $host }}
+    - host: {{ .host}}
       http:
         paths:
           - path: {{ .path }}
