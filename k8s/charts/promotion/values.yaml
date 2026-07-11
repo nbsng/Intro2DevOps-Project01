@@ -1,7 +1,8 @@
 backend:
   image:
-    repository: ghcr.io/nashtech-garage/yas-promotion
-    tag: latest
+    repository: sybew/promotion
+    tag: main
+    pullPolicy: Always
 
   nameOverride: promotion
   fullnameOverride: promotion

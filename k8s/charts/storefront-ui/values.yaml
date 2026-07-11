@@ -1,7 +1,8 @@
 ui:
   image:
-    repository: ghcr.io/nashtech-garage/yas-storefront
-    tag: latest
+    repository: sybew/storefront
+    tag: main
+    pullPolicy: Always
   nameOverride: storefront-ui
   fullnameOverride: storefront-ui
 #  extraVolumes:
@@ -18,7 +19,7 @@ ui:
 #      subPath: .env.production
   extraEnvs:
     - name: API_BASE_PATH
-      value: http://storefront.yas.local.com/api
+      value: http://storefront-bff/api
   ingress:
     enabled: false
 

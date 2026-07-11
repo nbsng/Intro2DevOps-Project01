@@ -1,11 +1,10 @@
-// Khai báo biến toàn cục để lưu danh sách các thư mục có sự thay đổi
 def changedFolders = []
 
 pipeline {
     agent any
 
     tools {
-        jdk 'JDK 25' 
+        jdk 'JDK 25'
         maven 'Maven'
         nodejs 'Node 20'
         snyk 'snyk'
@@ -17,33 +16,19 @@ pipeline {
     }
 
     stages {
-        // ==========================================
-        // 0. SYSTEM: TỰ ĐỘNG PHÁT HIỆN SỰ THAY ĐỔI
-        // ==========================================
         stage('System: Detect Changes') {
             steps {
                 script {
-                    echo "[INFO] Đang phân tích sự thay đổi của mã nguồn (Native Git Diff)..."
+                    echo "[INFO] Detecting source code changes..."
                     def baseRef = ""
                     
                     if (env.CHANGE_ID) {
                         baseRef = "origin/${env.CHANGE_TARGET}"
-                        echo "[INFO] Phát hiện Pull Request. Đang so sánh HEAD với ${baseRef}..."
-
-                        // [FIX] Ép Jenkins fetch đích danh nhánh target của PR về local
                         sh "git fetch origin ${env.CHANGE_TARGET}:refs/remotes/origin/${env.CHANGE_TARGET} --no-tags || true"
                     } else if (currentBuild.previousBuild == null) {
-                        echo "[INFO] Nhánh mới được tạo (First Build). Đang dò tìm nhánh mẹ gần nhất..."
-                        
                         baseRef = sh(script: '''#!/bin/bash
-                            # 1. Tắt cơ chế tự sập Pipeline khi có lỗi shell
                             set +e
-                            
-                            # 2. Tải TẤT CẢ các nhánh từ remote về local để thuật toán có data đối chiếu
-                            # Ép tải vào refs/remotes/origin/* và giấu log đi để không làm hỏng kết quả trả về
                             git fetch origin '+refs/heads/*:refs/remotes/origin/*' --no-tags > /dev/null 2>&1
-                            
-                            # 3. Thuật toán dò tìm nhánh mẹ
                             CURRENT_BRANCH=${BRANCH_NAME}
                             git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v "origin/${CURRENT_BRANCH}" | while read branch; do
                                 mb=$(git merge-base HEAD "$branch" 2>/dev/null)
@@ -54,13 +39,9 @@ pipeline {
                             done | sort -n | head -n 1 | awk '{print $2}'
                         ''', returnStdout: true).trim()
                         
-                        if (!baseRef) { 
-                            baseRef = "HEAD~1" 
-                        }
-                        echo "[INFO] Đã tìm thấy điểm rẽ nhánh gốc: ${baseRef}..."
+                        if (!baseRef) { baseRef = "HEAD~1" }
                     } else {
                         baseRef = env.GIT_PREVIOUS_COMMIT ?: "HEAD~1"
-                        echo "[INFO] Push cập nhật nhánh. So sánh HEAD với commit build trước đó (${baseRef})..."
                     }
 
                     sh "git fetch origin || true"
@@ -74,28 +55,25 @@ pipeline {
                         }
                     }
                     changedFolders = changedFolders.unique()
-                    echo "=> CÁC DỊCH VỤ CÓ SỰ THAY ĐỔI LÀ: ${changedFolders}"
+                    echo "=> CHANGED SERVICES: ${changedFolders}"
                 }
             }
         }
 
         stage('Security: Gitleaks Scan') {
             steps {
-                echo "[INFO] Đang quét mã nguồn để tìm mật khẩu, token bị lộ (Gitleaks)..."
                 sh 'gitleaks detect --source . --verbose --report-path gitleaks-report.json || true'
                 archiveArtifacts artifacts: 'gitleaks-report.json', allowEmptyArchive: true
             }
         }
 
-        // ==========================================
-        // CÁC SERVICES NODE.JS
-        // ==========================================
         stage('CI: Backoffice') {
             when { expression { return changedFolders.contains('backoffice') } }
             stages {
                 stage('Build') { steps { buildNodeService('backoffice') } }
                 stage('Format Check') { steps { formatNodeService('backoffice') } }
                 stage('Security & Quality') { steps { scanNodeService('backoffice') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('backoffice') } }
             }
         }
 
@@ -105,17 +83,16 @@ pipeline {
                 stage('Build') { steps { buildNodeService('storefront') } }
                 stage('Format Check') { steps { formatNodeService('storefront') } }
                 stage('Security & Quality') { steps { scanNodeService('storefront') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('storefront') } }
             }
         }
 
-        // ==========================================
-        // CÁC SERVICES MAVEN BFF (Verify)
-        // ==========================================
         stage('CI: Backoffice-bff') {
             when { expression { return changedFolders.contains('backoffice-bff') } }
             stages {
                 stage('Verify & Checkstyle') { steps { verifyMavenBff('backoffice-bff') } }
                 stage('Security & Quality') { steps { scanMavenService('backoffice-bff') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('backoffice-bff') } }
             }
         }
 
@@ -124,18 +101,17 @@ pipeline {
             stages {
                 stage('Verify & Checkstyle') { steps { verifyMavenBff('storefront-bff') } }
                 stage('Security & Quality') { steps { scanMavenService('storefront-bff') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('storefront-bff') } }
             }
         }
 
-        // ==========================================
-        // CÁC SERVICES MAVEN CORE (Install & Test)
-        // ==========================================
         stage('CI: Cart') {
             when { expression { return changedFolders.contains('cart') } }
             stages {
                 stage('Build') { steps { buildMavenCore('cart') } }
                 stage('Test') { steps { testMavenCore('cart') } }
                 stage('Security') { steps { scanMavenService('cart') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('cart') } }
             }
         }
 
@@ -145,6 +121,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('customer') } }
                 stage('Test') { steps { testMavenCore('customer') } }
                 stage('Security') { steps { scanMavenService('customer') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('customer') } }
             }
         }
 
@@ -154,6 +131,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('inventory') } }
                 stage('Test') { steps { testMavenCore('inventory') } }
                 stage('Security') { steps { scanMavenService('inventory') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('inventory') } }
             }
         }
 
@@ -163,6 +141,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('location') } }
                 stage('Test') { steps { testMavenCore('location') } }
                 stage('Security') { steps { scanMavenService('location') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('location') } }
             }
         }
 
@@ -172,6 +151,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('media') } }
                 stage('Test') { steps { testMavenCore('media') } }
                 stage('Security') { steps { scanMavenService('media') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('media') } }
             }
         }
 
@@ -181,6 +161,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('order') } }
                 stage('Test') { steps { testMavenCore('order') } }
                 stage('Security') { steps { scanMavenService('order') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('order') } }
             }
         }
 
@@ -190,6 +171,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('payment') } }
                 stage('Test') { steps { testMavenCore('payment') } }
                 stage('Security') { steps { scanMavenService('payment') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('payment') } }
             }
         }
 
@@ -199,6 +181,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('payment-paypal') } }
                 stage('Test') { steps { testMavenCore('payment-paypal') } }
                 stage('Security') { steps { scanMavenService('payment-paypal') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('payment-paypal') } }
             }
         }
 
@@ -208,6 +191,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('product') } }
                 stage('Test') { steps { testMavenCore('product') } }
                 stage('Security') { steps { scanMavenService('product') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('product') } }
             }
         }
 
@@ -217,6 +201,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('promotion') } }
                 stage('Test') { steps { testMavenCore('promotion') } }
                 stage('Security') { steps { scanMavenService('promotion') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('promotion') } }
             }
         }
 
@@ -226,6 +211,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('rating') } }
                 stage('Test') { steps { testMavenCore('rating') } }
                 stage('Security') { steps { scanMavenService('rating') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('rating') } }
             }
         }
 
@@ -235,6 +221,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('recommendation') } }
                 stage('Test') { steps { testMavenCore('recommendation') } }
                 stage('Security') { steps { scanMavenService('recommendation') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('recommendation') } }
             }
         }
 
@@ -244,6 +231,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('sampledata') } }
                 stage('Test') { steps { testMavenCore('sampledata') } }
                 stage('Security') { steps { scanMavenService('sampledata') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('sampledata') } }
             }
         }
 
@@ -253,6 +241,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('search') } }
                 stage('Test') { steps { testMavenCore('search') } }
                 stage('Security') { steps { scanMavenService('search') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('search') } }
             }
         }
 
@@ -262,6 +251,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('tax') } }
                 stage('Test') { steps { testMavenCore('tax') } }
                 stage('Security') { steps { scanMavenService('tax') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('tax') } }
             }
         }
 
@@ -271,6 +261,7 @@ pipeline {
                 stage('Build') { steps { buildMavenCore('webhook') } }
                 stage('Test') { steps { testMavenCore('webhook') } }
                 stage('Security') { steps { scanMavenService('webhook') } }
+                stage('Docker Build & Push') { steps { buildAndPushDocker('webhook') } }
             }
         }
 
@@ -283,9 +274,6 @@ pipeline {
             }
         }
 
-        // ==========================================
-        // SERVICE ĐẶC BIỆT: DELIVERY (Kiểm tra điều kiện Test)
-        // ==========================================
         stage('CI: Delivery') {
             when { expression { return changedFolders.contains('delivery') } }
             stages {
@@ -294,27 +282,108 @@ pipeline {
                 stage('Security') { steps { scanMavenService('delivery') } }
             }
         }
+
+        stage('CD: Release Staging') {
+            when { expression { return env.TAG_NAME != null && env.TAG_NAME.matches(/v?\d+\.\d+\.\d+.*/) } }
+            steps {
+                script {
+                    echo "[INFO] 🚀 Git Tag Release ${env.TAG_NAME} — Building ALL services for staging..."
+                    sh "mvn clean install -DskipTests"
+
+                    def allDockerServices = [
+                        'backoffice', 'storefront', 'backoffice-bff', 'storefront-bff',
+                        'cart', 'customer', 'inventory', 'media', 'order',
+                        'product', 'sampledata', 'search', 'tax'
+                    ]
+                    
+                    withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+                        sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                        allDockerServices.each { svc ->
+                            def imageName = "sybew/${svc}:${env.TAG_NAME}"
+                            if (fileExists("${svc}/Dockerfile")) {
+                                echo "[INFO] Building ${imageName}..."
+                                // media/Dockerfile dùng path tuyệt đối từ root workspace
+                                // (COPY media/target/*.jar và COPY sampledata/images/)
+                                // nên cần build với root context và chỉ định Dockerfile bằng -f
+                                if (svc == 'media') {
+                                    sh "docker build -t ${imageName} . -f ./${svc}/Dockerfile"
+                                } else {
+                                    sh "docker build -t ${imageName} ./${svc}"
+                                }
+                                sh "docker push ${imageName}"
+                                sh "docker rmi ${imageName} || true"
+                            }
+                        }
+                    }
+                    
+                    def svcToChartMap = [
+                        'backoffice': 'backoffice-ui', 'storefront': 'storefront-ui',
+                        'backoffice-bff': 'backoffice-bff', 'storefront-bff': 'storefront-bff',
+                        'cart': 'cart', 'customer': 'customer', 'inventory': 'inventory',
+                        'media': 'media', 'order': 'order', 'product': 'product',
+                        'sampledata': 'sampledata', 'search': 'search', 'tax': 'tax'
+                    ]
+                    
+                    def allCharts = []
+                    allDockerServices.each { svc ->
+                        if (svcToChartMap.containsKey(svc)) {
+                            allCharts.add(svcToChartMap[svc])
+                        }
+                    }
+                    
+                    syncAllManifests(allCharts, 'staging', env.TAG_NAME)
+                }
+            }
+        }
+
+        stage('CD: Sync Dev Manifests') {
+            when { expression { return (env.TAG_NAME == null || !env.TAG_NAME.matches(/v?\d+\.\d+\.\d+.*/)) } }
+            steps {
+                script {
+                    def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    def imageTag = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
+                    
+                    def svcToChartMap = [
+                        'backoffice': 'backoffice-ui', 'storefront': 'storefront-ui',
+                        'backoffice-bff': 'backoffice-bff', 'storefront-bff': 'storefront-bff',
+                        'cart': 'cart', 'customer': 'customer', 'inventory': 'inventory',
+                        'media': 'media', 'order': 'order', 'product': 'product',
+                        'sampledata': 'sampledata', 'search': 'search', 'tax': 'tax'
+                    ]
+                    
+                    def changedCharts = []
+                    changedFolders.each { svc ->
+                        if (svcToChartMap.containsKey(svc)) changedCharts.add(svcToChartMap[svc])
+                    }
+                    
+                    // Removed: Do not update image tags if only k8s folder changes
+                    // if (changedFolders.contains('k8s')) {
+                    //    changedCharts = CHART_VALUE_KEYS.keySet().toList()
+                    // }
+                    
+                    if (!changedCharts.isEmpty()) {
+                        syncAllManifests(changedCharts, 'dev', imageTag)
+                    } else {
+                        echo "[INFO] No Docker services changed, skipping manifest sync."
+                    }
+                }
+            }
+        }
     }
 
-    // ==========================================
-    // DỌN DẸP & THÔNG BÁO SAU KHI CHẠY
-    // ==========================================
     post {
         always { cleanWs() }
-        success { echo "✅ Pipeline hoàn thành thành công!" }
-        failure { echo "❌ Pipeline thất bại!" }
+        success { echo "✅ Pipeline completed successfully!" }
+        failure { echo "❌ Pipeline failed!" }
     }
 }
 
-// =========================================================================================
-// ============================= CÁC HÀM HỖ TRỢ (HELPER METHODS) =============================
-// Việc định nghĩa hàm ở đây giúp Jenkins không bị quá tải bộ nhớ khi parse file Declarative
-// =========================================================================================
+// ==========================================
+// HELPER METHODS
+// ==========================================
 
-// --- Helpers cho Node.js ---
 def buildNodeService(String svc) {
     dir(svc) {
-        echo "[INFO] Đang cài đặt thư viện và build ${svc}..."
         sh 'npm ci'
         sh 'npm run build'
     }
@@ -322,7 +391,6 @@ def buildNodeService(String svc) {
 
 def formatNodeService(String svc) {
     dir(svc) {
-        echo "[INFO] Đang kiểm tra Format..."
         sh 'npm run lint'
         sh 'npx prettier --check .'
     }
@@ -330,11 +398,9 @@ def formatNodeService(String svc) {
 
 def scanNodeService(String svc) {
     dir(svc) {
-        echo "[INFO] Quét SonarQube..."
         withSonarQubeEnv('Sonar-Server') {
             sh "sonar-scanner -Dsonar.projectKey=${svc} -Dsonar.sources=."
         }
-        echo "[INFO] Quét Snyk..."
         withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
             sh "snyk test --all-projects --json-file-output=snyk-${svc}-report.json || true"
         }
@@ -342,13 +408,10 @@ def scanNodeService(String svc) {
     }
 }
 
-// --- Helpers cho Maven BFF ---
 def verifyMavenBff(String svc) {
-    echo "[INFO] Đang chạy Verify và Checkstyle cho ${svc}..."
     sh "mvn clean verify checkstyle:checkstyle -DskipTests -pl ${svc} -am"
 }
 
-// --- Helpers cho Maven Core ---
 def buildMavenCore(String svc) {
     sh "mvn clean install -DskipTests -pl ${svc} -am"
 }
@@ -357,7 +420,6 @@ def testMavenCore(String svc) {
     try {
         sh "mvn test jacoco:report -pl ${svc} -am"
     } finally {
-        // Khối finally đảm bảo Report luôn được thu thập kể cả khi test fail
         junit testResults: "${svc}/target/surefire-reports/*.xml", allowEmptyResults: true
         if (fileExists("${svc}/target/site/jacoco/jacoco.xml")) {
             recordCoverage(
@@ -372,21 +434,17 @@ def testMavenCore(String svc) {
 }
 
 def scanMavenService(String svc) {
-    echo "[INFO] Quét SonarQube cho ${svc}..."
     withSonarQubeEnv('Sonar-Server') {
         sh "mvn sonar:sonar -pl ${svc} -am -Dsonar.projectKey=${svc}"
     }
-    echo "[INFO] Quét Snyk cho ${svc}..."
     withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
         sh "snyk test --all-projects --json-file-output=snyk-${svc}-report.json --target-dir=${svc} || true"
     }
     archiveArtifacts artifacts: "snyk-${svc}-report.json", allowEmptyArchive: true
 }
 
-// --- Helper đặc thù cho Delivery ---
 def testMavenDelivery(String svc) {
     if (fileExists("${svc}/src/test")) {
-        echo "[INFO] Phát hiện thư mục test trong ${svc}, đang chạy Test..."
         try {
             sh "mvn test jacoco:report -pl ${svc} -am"
         } finally {
@@ -401,7 +459,114 @@ def testMavenDelivery(String svc) {
                 )
             }
         }
-    } else {
-        echo "[INFO] Không tìm thấy thư mục test trong ${svc}, bỏ qua."
+    }
+}
+
+def buildAndPushDocker(String svc) {
+    script {
+        def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+        def imageTag  = (env.BRANCH_NAME == 'main') ? 'main' : shortCommit
+        def imageName = "sybew/${svc}:${imageTag}"
+
+        echo "[INFO] Building Docker image: ${imageName}"
+        // media/Dockerfile dùng path tuyệt đối từ root workspace
+        if (svc == 'media') {
+            sh "docker build -t ${imageName} . -f ./${svc}/Dockerfile"
+        } else {
+            sh "docker build -t ${imageName} ./${svc}"
+        }
+
+        echo "[INFO] Pushing to Docker Hub: ${imageName}"
+        withCredentials([usernamePassword(credentialsId: 'jenkins-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
+            sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+            sh "docker push ${imageName}"
+            sh "docker rmi ${imageName} || true"
+        }
+    }
+}
+
+@groovy.transform.Field
+def CHART_VALUE_KEYS = [
+    'backoffice-ui'   : 'ui',
+    'storefront-ui'   : 'ui',
+    'backoffice-bff'  : 'backend',
+    'storefront-bff'  : 'backend',
+    'cart'            : 'backend',
+    'customer'        : 'backend',
+    'inventory'       : 'backend',
+    'media'           : 'backend',
+    'order'           : 'backend',
+    'product'         : 'backend',
+    'sampledata'      : 'backend',
+    'search'          : 'backend',
+    'tax'             : 'backend'
+]
+
+def syncAllManifests(List<String> charts, String targetEnv, String imageTag) {
+    script {
+        def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+
+        withCredentials([usernamePassword(credentialsId: 'jenkins-github-manifest-token', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
+            sh 'rm -rf Intro2DevOps-Project02Deployment'
+            sh 'git clone https://${GIT_USER}:${GIT_TOKEN}@github.com/nbsng/Intro2DevOps-Project02Deployment.git Intro2DevOps-Project02Deployment'
+
+            charts.each { chart ->
+                def valueKey = CHART_VALUE_KEYS[chart]
+                if (valueKey) {
+                    def valuesDir  = "Intro2DevOps-Project02Deployment/${targetEnv}/${chart}"
+                    def valuesFile = "${valuesDir}/values.yaml"
+                    sh "mkdir -p ${valuesDir}"
+
+                    sh """
+                        if [ -f ${valuesFile} ] && grep -q "tag:" ${valuesFile}; then
+                            sed -i 's/tag: .*/tag: "${imageTag}"/' ${valuesFile}
+                        else
+                            echo "${valueKey}:" > ${valuesFile}
+                            echo "  image:" >> ${valuesFile}
+                            echo "    tag: \\"${imageTag}\\"" >> ${valuesFile}
+                        fi
+                    """
+                }
+            }
+
+            def commitMsg = "ci(${targetEnv}): update [${charts.join(', ')}] to tag ${imageTag} [skip ci]"
+            dir('Intro2DevOps-Project02Deployment') {
+                sh """
+                    git config user.name 'Jenkins Automated CI'
+                    git config user.email 'xuxinhno1@users.noreply.github.com'
+                    git add .
+                    git diff --cached --quiet || git commit -m '${commitMsg}'
+                    git remote set-url origin https://\${GIT_USER}:\${GIT_TOKEN}@github.com/nbsng/Intro2DevOps-Project02Deployment.git
+                    git push origin main
+                """
+            }
+        }
+    }
+}
+
+// NOTE: Run this function manually once to setup ArgoCD Application CRDs.
+def initArgoCDApplications(String targetEnv = 'dev') {
+    script {
+        CHART_VALUE_KEYS.each { chart, valueKey ->
+            def appName = "${chart}-${targetEnv}"
+            sh """
+                argocd app create ${appName} \\
+                  --project default \\
+                  --dest-server https://kubernetes.default.svc \\
+                  --dest-namespace ${targetEnv} \\
+                  --sync-policy automated \\
+                  --auto-prune \\
+                  --self-heal \\
+                  --sync-option CreateNamespace=true \\
+                  --source-0-repo    https://github.com/nbsng/Intro2DevOps-Project01.git \\
+                  --source-0-revision main \\
+                  --source-0-path    k8s/charts/${chart} \\
+                  --source-0-helm-value-files values.yaml \\
+                  --source-1-repo    https://github.com/nbsng/Intro2DevOps-Project02Deployment.git \\
+                  --source-1-revision main \\
+                  --source-1-ref     valuesRepo \\
+                  --upsert || true
+            """
+        }
     }
 }
